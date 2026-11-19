@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" font-family="Segoe UI, Arial, sans-serif">
+  <defs>
+    <pattern id="dots" width="28" height="28" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1.6" fill="#C9CED6"/></pattern>
+    <marker id="arr" markerUnits="userSpaceOnUse" markerWidth="18" markerHeight="18" refX="16" refY="9" orient="auto"><path d="M1,2 L17,9 L1,16 z" fill="#333"/></marker>
+    <filter id="sh" x="-10%" y="-10%" width="130%" height="130%"><feDropShadow dx="3" dy="4" stdDeviation="3" flood-color="#000" flood-opacity="0.18"/></filter>
+  </defs>
+  <rect width="1600" height="900" fill="#F7F8FA"/>
+  <rect width="1600" height="900" fill="url(#dots)"/>
+  <text x="40" y="58" font-size="34" font-weight="700" fill="#1F2933">Del estado inicial al estado protegido</text>
+  <text x="40" y="92" font-size="20" fill="#52606D">Cada control (nota amarilla) cierra un hallazgo y deja funcionando solo el puerto 22 y el 80</text>
+
+  <!-- ANTES -->
+  <g filter="url(#sh)"><rect x="40" y="130" width="540" height="740" rx="18" fill="#FFF5F5" stroke="#C53030" stroke-width="3"/></g>
+  <rect x="40" y="130" width="540" height="58" rx="18" fill="#C53030"/><rect x="40" y="160" width="540" height="28" fill="#C53030"/>
+  <text x="310" y="170" font-size="26" font-weight="700" fill="#fff" text-anchor="middle">ANTES · servidor vulnerable</text>
+
+  <rect x="70" y="214" width="480" height="72" rx="12" fill="#fff" stroke="#C53030" stroke-width="2"/>
+  <text x="90" y="244" font-size="22" font-weight="700" fill="#742A2A">H1 · Root entra por SSH</text>
+  <text x="90" y="270" font-size="18" fill="#742A2A">PermitRootLogin yes · control total</text>
+  <rect x="70" y="298" width="480" height="72" rx="12" fill="#fff" stroke="#C53030" stroke-width="2"/>
+  <text x="90" y="328" font-size="22" font-weight="700" fill="#742A2A">H2 · Sitio con permisos 777</text>
+  <text x="90" y="354" font-size="18" fill="#742A2A">cualquiera lo modifica o lo borra</text>
+  <rect x="70" y="382" width="480" height="72" rx="12" fill="#fff" stroke="#C53030" stroke-width="2"/>
+  <text x="90" y="412" font-size="22" font-weight="700" fill="#742A2A">H3 · Firewall UFW apagado</text>
+  <text x="90" y="438" font-size="18" fill="#742A2A">todo servicio queda expuesto</text>
+  <rect x="70" y="466" width="480" height="72" rx="12" fill="#fff" stroke="#C53030" stroke-width="2"/>
+  <text x="90" y="496" font-size="22" font-weight="700" fill="#742A2A">H4 · vsftpd (FTP) activo</text>
+  <text x="90" y="522" font-size="18" fill="#742A2A">servicio innecesario, sin cifrar</text>
+  <rect x="70" y="550" width="480" height="72" rx="12" fill="#fff" stroke="#C53030" stroke-width="2"/>
+  <text x="90" y="580" font-size="22" font-weight="700" fill="#742A2A">H5 · 227 actualizaciones pendientes</text>
+  <text x="90" y="606" font-size="18" fill="#742A2A">133 son de seguridad</text>
+
+  <text x="310" y="662" font-size="21" font-weight="700" fill="#742A2A" text-anchor="middle">Puertos vistos con Nmap</text>
+  <rect x="100" y="680" width="130" height="62" rx="12" fill="#FEB2B2" stroke="#C53030" stroke-width="2"/><text x="165" y="718" font-size="26" font-weight="700" fill="#742A2A" text-anchor="middle">21 FTP</text>
+  <rect x="245" y="680" width="130" height="62" rx="12" fill="#FEB2B2" stroke="#C53030" stroke-width="2"/><text x="310" y="718" font-size="26" font-weight="700" fill="#742A2A" text-anchor="middle">22 SSH</text>
+  <rect x="390" y="680" width="130" height="62" rx="12" fill="#FEB2B2" stroke="#C53030" stroke-width="2"/><text x="455" y="718" font-size="26" font-weight="700" fill="#742A2A" text-anchor="middle">80 HTTP</text>
+  <text x="310" y="780" font-size="19" fill="#742A2A" text-anchor="middle">Tres puertos abiertos y sin filtro:</text>
+  <text x="310" y="806" font-size="19" fill="#742A2A" text-anchor="middle">el firewall no filtra nada</text>
+  <rect x="120" y="822" width="380" height="38" rx="19" fill="#C53030"/>
+  <text x="310" y="848" font-size="20" font-weight="700" fill="#fff" text-anchor="middle">Acceso como root desde Kali</text>
+
+  <!-- CONTROLES -->
+  <rect x="650" y="214" width="300" height="72" rx="6" fill="#FFF3B0" stroke="#B7950B" stroke-width="2" filter="url(#sh)"/>
+  <text x="800" y="244" font-size="21" font-weight="700" fill="#3D3300" text-anchor="middle">C3 · PermitRootLogin no</text>
+  <text x="800" y="270" font-size="17" fill="#3D3300" text-anchor="middle">+ reiniciar ssh</text>
+  <rect x="650" y="298" width="300" height="72" rx="6" fill="#FFF3B0" stroke="#B7950B" stroke-width="2" filter="url(#sh)"/>
+  <text x="800" y="328" font-size="21" font-weight="700" fill="#3D3300" text-anchor="middle">C4 · dueño www-data</text>
+  <text x="800" y="354" font-size="17" fill="#3D3300" text-anchor="middle">+ permisos 755</text>
+  <rect x="650" y="382" width="300" height="72" rx="6" fill="#FFF3B0" stroke="#B7950B" stroke-width="2" filter="url(#sh)"/>
+  <text x="800" y="412" font-size="21" font-weight="700" fill="#3D3300" text-anchor="middle">C5 · UFW activo</text>
+  <text x="800" y="438" font-size="17" fill="#3D3300" text-anchor="middle">deny entrante · allow 22 y 80</text>
+  <rect x="650" y="466" width="300" height="72" rx="6" fill="#FFF3B0" stroke="#B7950B" stroke-width="2" filter="url(#sh)"/>
+  <text x="800" y="496" font-size="21" font-weight="700" fill="#3D3300" text-anchor="middle">C2 · detener y deshabilitar</text>
+  <text x="800" y="522" font-size="17" fill="#3D3300" text-anchor="middle">vsftpd</text>
+  <rect x="650" y="550" width="300" height="72" rx="6" fill="#FFF3B0" stroke="#B7950B" stroke-width="2" filter="url(#sh)"/>
+  <text x="800" y="580" font-size="21" font-weight="700" fill="#3D3300" text-anchor="middle">C1 · apt update + upgrade</text>
+  <text x="800" y="606" font-size="17" fill="#3D3300" text-anchor="middle">kernel 7.0.0-42</text>
+
+  <line x1="550" y1="250" x2="650" y2="250" stroke="#333" stroke-width="3.5" marker-end="url(#arr)"/>
+  <line x1="550" y1="334" x2="650" y2="334" stroke="#333" stroke-width="3.5" marker-end="url(#arr)"/>
+  <line x1="550" y1="418" x2="650" y2="418" stroke="#333" stroke-width="3.5" marker-end="url(#arr)"/>
+  <line x1="550" y1="502" x2="650" y2="502" stroke="#333" stroke-width="3.5" marker-end="url(#arr)"/>
+  <line x1="550" y1="586" x2="650" y2="586" stroke="#333" stroke-width="3.5" marker-end="url(#arr)"/>
+  <line x1="950" y1="250" x2="1050" y2="250" stroke="#333" stroke-width="3.5" marker-end="url(#arr)"/>
+  <line x1="950" y1="334" x2="1050" y2="334" stroke="#333" stroke-width="3.5" marker-end="url(#arr)"/>
+  <line x1="950" y1="418" x2="1050" y2="418" stroke="#333" stroke-width="3.5" marker-end="url(#arr)"/>
+  <line x1="950" y1="502" x2="1050" y2="502" stroke="#333" stroke-width="3.5" marker-end="url(#arr)"/>
+  <line x1="950" y1="586" x2="1050" y2="586" stroke="#333" stroke-width="3.5" marker-end="url(#arr)"/>
+
+  <!-- DESPUES -->
+  <g filter="url(#sh)"><rect x="1050" y="130" width="510" height="740" rx="18" fill="#F0FFF4" stroke="#2F855A" stroke-width="3"/></g>
+  <rect x="1050" y="130" width="510" height="58" rx="18" fill="#2F855A"/><rect x="1050" y="160" width="510" height="28" fill="#2F855A"/>
+  <text x="1305" y="170" font-size="26" font-weight="700" fill="#fff" text-anchor="middle">DESPUÉS · servidor protegido</text>
+
+  <rect x="1075" y="214" width="460" height="72" rx="12" fill="#fff" stroke="#2F855A" stroke-width="2"/>
+  <text x="1095" y="244" font-size="22" font-weight="700" fill="#1C4532">Root rechazado</text>
+  <text x="1095" y="270" font-size="18" fill="#1C4532">Permission denied · entra solo juan</text>
+  <rect x="1075" y="298" width="460" height="72" rx="12" fill="#fff" stroke="#2F855A" stroke-width="2"/>
+  <text x="1095" y="328" font-size="22" font-weight="700" fill="#1C4532">Sitio en 755</text>
+  <text x="1095" y="354" font-size="18" fill="#1C4532">solo www-data escribe; los demás leen</text>
+  <rect x="1075" y="382" width="460" height="72" rx="12" fill="#fff" stroke="#2F855A" stroke-width="2"/>
+  <text x="1095" y="412" font-size="22" font-weight="700" fill="#1C4532">Firewall activo</text>
+  <text x="1095" y="438" font-size="18" fill="#1C4532">solo permite SSH y HTTP</text>
+  <rect x="1075" y="466" width="460" height="72" rx="12" fill="#fff" stroke="#2F855A" stroke-width="2"/>
+  <text x="1095" y="496" font-size="22" font-weight="700" fill="#1C4532">FTP inactivo</text>
+  <text x="1095" y="522" font-size="18" fill="#1C4532">no arranca al reiniciar</text>
+  <rect x="1075" y="550" width="460" height="72" rx="12" fill="#fff" stroke="#2F855A" stroke-width="2"/>
+  <text x="1095" y="580" font-size="22" font-weight="700" fill="#1C4532">Sistema actualizado</text>
+  <text x="1095" y="606" font-size="18" fill="#1C4532">sin paquetes pendientes</text>
+
+  <text x="1305" y="662" font-size="21" font-weight="700" fill="#1C4532" text-anchor="middle">Puertos vistos con Nmap</text>
+  <rect x="1090" y="680" width="130" height="62" rx="12" fill="#E2E8F0" stroke="#718096" stroke-width="2" stroke-dasharray="8 5"/><text x="1155" y="718" font-size="26" font-weight="700" fill="#4A5568" text-anchor="middle">21 filtr.</text>
+  <rect x="1235" y="680" width="130" height="62" rx="12" fill="#9AE6B4" stroke="#2F855A" stroke-width="2"/><text x="1300" y="718" font-size="26" font-weight="700" fill="#1C4532" text-anchor="middle">22 SSH</text>
+  <rect x="1380" y="680" width="130" height="62" rx="12" fill="#9AE6B4" stroke="#2F855A" stroke-width="2"/><text x="1445" y="718" font-size="26" font-weight="700" fill="#1C4532" text-anchor="middle">80 HTTP</text>
+  <text x="1305" y="780" font-size="19" fill="#1C4532" text-anchor="middle">Solo se ofrecen los servicios que el</text>
+  <text x="1305" y="806" font-size="19" fill="#1C4532" text-anchor="middle">escenario necesita</text>
+  <rect x="1110" y="822" width="390" height="38" rx="19" fill="#2F855A"/>
+  <text x="1305" y="848" font-size="20" font-weight="700" fill="#fff" text-anchor="middle">Sitio y administración funcionando</text>
+</svg>

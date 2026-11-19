@@ -1,0 +1,42 @@
+{
+  "institucion": "Universidad Católica Luis Amigó",
+  "curso": "Seguridad Informática",
+  "docente": "Docente de Seguridad Informática",
+  "integrantes": [
+    "Juan Camilo Nieto Arboleda",
+    "Juan Diego Vasquez"
+  ],
+  "fecha_informe": "Noviembre de 2026",
+  "organizacion": "Café Montaña S.A.S.",
+  "descripcion_sitio": "Su sitio es una página sencilla con la presentación de la empresa, su catálogo de productos y datos de contacto ficticios",
+  "incidente_dns": "Se habilitó salida a Internet de forma temporal solo para actualizar, se repitió el comando y la actualización avanzó (E09); después el servidor volvió a la red aislada. En la sustentación se explica que este paso es la única excepción al aislamiento.",
+  "incidente_scp": "Kali no alcanzaba al servidor en ese momento (la IP del servidor es por DHCP y puede cambiar). Se comprobó la IP con <code>ip a</code>, se verificó la conectividad y se repitió el comando con el nombre correcto, <code>respaldo_servidor.tar.gz</code>. El resultado exitoso está en P9.",
+  "nota_fuentes": "Documentación oficial y guías de referencia en las que se apoyan los controles y los comandos usados en este trabajo.",
+  "reparto": [
+    {
+      "integrante": "Juan Camilo Nieto Arboleda",
+      "tareas": "Servidor Ubuntu: preparación del estado inicial, controles, respaldo y restauración; documentación de los registros."
+    },
+    {
+      "integrante": "Juan Diego Vasquez",
+      "tareas": "Máquina Kali: diagnóstico con Nmap, pruebas SSH, copia externa del respaldo, validación y armado del informe."
+    }
+  ],
+  "responsables": [
+    {
+      "rol": "Administrador del servidor",
+      "nombre": "Juan Camilo Nieto Arboleda (cuenta juan)",
+      "funcion": "Primer respondiente: confirma el evento en los registros, contiene (bloqueo en UFW, cierre de sesiones) y restaura desde el respaldo."
+    },
+    {
+      "rol": "Responsable de seguridad",
+      "nombre": "Juan Diego Vasquez",
+      "funcion": "Decide la severidad, ordena aislar la máquina si hay compromiso y valida que los controles sigan activos."
+    },
+    {
+      "rol": "Contacto de la organización",
+      "nombre": "Gerencia de Café Montaña S.A.S. (contacto ficticio)",
+      "funcion": "Recibe el reporte del incidente, autoriza ventanas de recuperación y comunica a los usuarios afectados."
+    }
+  ]
+}

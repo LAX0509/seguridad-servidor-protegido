@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>De servidor vulnerable a servidor protegido — Informe</title>
+<link rel="stylesheet" href="estilo.css">
+</head>
+<body>
+
+<!-- ===================== PORTADA ===================== -->
+<div class="portada">
+  <div class="curso">Seguridad Informática · Proyecto final</div>
+  <h1 class="titulo">De servidor vulnerable<br>a servidor protegido</h1>
+  <div class="sub">Diagnóstico, controles de seguridad y recuperación de un servidor web con administración remota</div>
+  <div class="bloque"><div class="et">Integrantes</div><div class="val">Juan Camilo Nieto Arboleda<br>Juan Diego Vasquez</div></div>
+  <div class="bloque"><div class="et">Institución</div><div class="val">Universidad Católica Luis Amigó</div></div>
+  <div class="bloque"><div class="et">Docente</div><div class="val">Docente de Seguridad Informática</div></div>
+  <div class="bloque"><div class="et">Sustentación</div><div class="val">9 y 11 de noviembre de 2026</div></div>
+  <div class="pie">Noviembre de 2026 · Laboratorio aislado con datos ficticios · Oracle VirtualBox: Ubuntu 26.04.1 LTS (servidor) y Kali Linux 2026.1 (máquina de pruebas)</div>
+</div>
+
+<!-- ===================== RESUMEN Y CONTENIDO ===================== -->
+<h1 class="sinsalto" style="margin-top:0">Resumen</h1>
+<p>Se construyó un laboratorio virtual de dos máquinas en una red aislada: un servidor Ubuntu con Apache, OpenSSH y UFW, y una máquina Kali Linux con Nmap y cliente SSH. En el servidor se prepararon <b>cinco debilidades de categorías distintas</b> (acceso remoto, permisos, red, servicios innecesarios y mantenimiento), se conservó una instantánea del estado inicial y se realizó el diagnóstico con Nmap y un acceso SSH no autorizado como <code>root</code>. Después se aplicaron cinco controles, se revisaron los registros de autenticación, se creó un respaldo, se restauró un archivo de prueba y se diseñó la validación final para comparar el antes y el después sin afectar el sitio web ni la administración legítima. Las comprobaciones que cuentan con captura figuran como «Evidenciado»; las demás se ejecutan en directo durante la sustentación, como exige la actividad.</p>
+
+<table>
+  <thead><tr><th>Aspecto</th><th>Estado inicial</th><th>Estado final</th><th>Evidencia</th></tr></thead>
+  <tbody>
+    <tr><td>Puertos accesibles desde la red</td><td>21, 22 y 80 abiertos, sin filtrado</td><td>Solo 22 y 80 (resultado esperado)</td><td>E06 → <span class="vivo">P2 (en vivo)</span></td></tr>
+    <tr><td>Acceso SSH directo como root</td><td>Permitido (se obtuvo una consola root)</td><td>Rechazado</td><td>E08 → E17</td></tr>
+    <tr><td>Permisos del sitio web</td><td>777 (cualquiera escribe)</td><td>755, dueño www-data</td><td>E03 → E12, P4</td></tr>
+    <tr><td>Firewall</td><td>Desactivado</td><td>Activo: deniega lo entrante salvo 22 y 80</td><td>E03 → E12, P3</td></tr>
+    <tr><td>Actualizaciones de seguridad</td><td>227 pendientes (133 de seguridad)</td><td>Aplicadas (conteo final en vivo)</td><td>E08 → E09, <span class="vivo">P5 (en vivo)</span></td></tr>
+  </tbody>
+</table>
+
+<h2>Contenido</h2>
+<div class="toc">
+  <div>1. Integrantes, distribución y escenario</div>
+  <div>2. Diagrama de red e inventario</div>
+  <div>3. Preparación del estado inicial</div>
+  <div>4. Diagnóstico</div>
+  <div>5. Controles aplicados</div>
+  <div>6. Registros, respaldo y recuperación</div>
+  <div>7. Validación del resultado</div>
+  <div>8. Tabla comparativa de hallazgos</div>
+  <div>9. Conclusiones, riesgos pendientes y fuentes</div>
+  <div>Anexo A. Scripts e instrucciones para repetir</div>
+  <div>Anexo B. Incidencias durante la práctica</div>
+  <div>Anexo C. Índice de evidencias</div>
+</div>
+
+<div class="nota"><b>Cómo leer las evidencias.</b> Cada captura lleva un identificador (E = evidencia del estado inicial, de controles o de pruebas; P = prueba final; I = incidencia). Los archivos originales están en la carpeta <code>evidencias/</code> con el mismo identificador al inicio del nombre. Las horas de los registros del servidor están en UTC; la hora local de Colombia es UTC−5.</div>
+
+<!-- ===================== 1 ===================== -->
+<h1>1. Integrantes, distribución del trabajo y escenario</h1>
+<h2>1.1 Integrantes y distribución del trabajo</h2>
+<table><thead><tr><th style='width:30%'>Integrante</th><th>Actividades realizadas</th></tr></thead><tbody><tr><td>Juan Camilo Nieto Arboleda</td><td>Servidor Ubuntu: preparación del estado inicial, controles, respaldo y restauración; documentación de los registros.</td></tr><tr><td>Juan Diego Vasquez</td><td>Máquina Kali: diagnóstico con Nmap, pruebas SSH, copia externa del respaldo, validación y armado del informe.</td></tr></tbody></table>
+
+<h2>1.2 Descripción del escenario</h2>
+<p><b>Café Montaña S.A.S.</b> es una organización ficticia que necesita un servidor que publique su sitio web institucional y que pueda administrarse a distancia. Su sitio es una página sencilla con la presentación de la empresa, su catálogo de productos y datos de contacto ficticios. El servidor funciona, pero fue entregado con configuraciones inseguras que podrían permitir accesos no autorizados, exposición de información o pérdida de archivos. El equipo asume el papel de encargado de evaluarlo y protegerlo <b>sin afectar los servicios que la organización necesita</b>.</p>
+<table>
+  <thead><tr><th style="width:24%">Elemento</th><th>Descripción</th></tr></thead>
+  <tbody>
+    <tr><td><b>Función del servidor</b></td><td>Publicar el sitio web (Apache, 80/tcp) y permitir la administración remota (OpenSSH, 22/tcp).</td></tr>
+    <tr><td><b>Usuarios</b></td><td>Visitantes del sitio (solo lectura por HTTP). Administrador del servidor: cuenta <code>juan</code>, con acceso por SSH y <code>sudo</code>. La cuenta <code>root</code> no debe usarse de forma remota.</td></tr>
+    <tr><td><b>Información a proteger</b></td><td>Contenido del sitio (<code>/var/www/html</code>: integridad y disponibilidad); configuración de SSH (<code>/etc/ssh/sshd_config</code>) y del firewall (<code>/etc/ufw/</code>); credenciales de administración; registros de autenticación (<code>/var/log/auth.log</code>); el respaldo.</td></tr>
+    <tr><td><b>Accesos necesarios</b></td><td>HTTP 80/tcp para cualquier equipo de la red. SSH 22/tcp para el administrador con un usuario sin privilegios directos de root. Todo lo demás debe quedar bloqueado.</td></tr>
+    <tr><td><b>Restricciones del laboratorio</b></td><td>Red aislada; únicamente datos ficticios; sin pruebas sobre equipos institucionales, sin malware real y sin ataques de denegación de servicio.</td></tr>
+    <tr><td><b>Condiciones del docente</b></td><td>Se trabajó con las condiciones del enunciado del proyecto; no se asignaron condiciones adicionales.</td></tr>
+  </tbody>
+</table>
+
+<!-- ===================== 2 ===================== -->
+<h1>2. Diagrama de red e inventario del servidor</h1>
+<h2>2.1 Diagrama de red</h2>
+<div class="diagrama"><svg viewBox="0 0 700 330" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Arial, sans-serif" font-size="12" role="img" aria-label="Diagrama de red del laboratorio">
+  <defs>
+    <marker id="fl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#445"/>
+    </marker>
+  </defs>
+  <rect x="4" y="4" width="692" height="322" rx="10" fill="#fcfdfe" stroke="#8a94a6" stroke-dasharray="6 4"/>
+  <text x="18" y="24" font-weight="600" fill="#445">Equipo anfitrión · Oracle VirtualBox</text>
+
+  <!-- Kali -->
+  <rect x="24" y="44" width="260" height="150" rx="8" fill="#fff4e5" stroke="#c77b1b" stroke-width="1.5"/>
+  <text x="38" y="66" font-weight="700" fill="#7a4a07">Kali Linux 2026.1 · máquina de pruebas</text>
+  <text x="38" y="88" fill="#222">IP 192.168.56.102</text>
+  <text x="38" y="108" fill="#222">Nmap 7.98 · cliente SSH / SCP</text>
+  <text x="38" y="128" fill="#222">Navegador (prueba del sitio web)</text>
+  <text x="38" y="148" fill="#222">Rol: evaluador (diagnóstico y validación)</text>
+  <text x="38" y="168" fill="#222">Guarda el respaldo externo (scp)</text>
+
+  <!-- Ubuntu -->
+  <rect x="416" y="44" width="260" height="150" rx="8" fill="#eaf5ea" stroke="#2e7d32" stroke-width="1.5"/>
+  <text x="430" y="66" font-weight="700" fill="#1b5e20">Ubuntu 26.04.1 LTS · servidor</text>
+  <text x="430" y="88" fill="#222">IP 192.168.56.101 (enp0s3)</text>
+  <text x="430" y="108" fill="#222">Apache 2.4.66 · 80/tcp · /var/www/html</text>
+  <text x="430" y="128" fill="#222">OpenSSH 10.2p1 · 22/tcp (admin: juan)</text>
+  <text x="430" y="148" fill="#222">UFW 0.36.2: permite 22 y 80, resto denegado</text>
+  <text x="430" y="168" fill="#222">vsftpd 3.0.5 · 21/tcp (deshabilitado)</text>
+
+  <!-- Flujo entre maquinas -->
+  <line x1="290" y1="119" x2="410" y2="119" stroke="#445" stroke-width="1.6" marker-start="url(#fl)" marker-end="url(#fl)"/>
+  <text x="350" y="104" text-anchor="middle" fill="#445" font-size="11">nmap · ssh</text>
+  <text x="350" y="138" text-anchor="middle" fill="#445" font-size="11">scp · http</text>
+
+  <!-- Red -->
+  <line x1="154" y1="194" x2="154" y2="246" stroke="#2f6fb5" stroke-width="2"/>
+  <line x1="546" y1="194" x2="546" y2="246" stroke="#2f6fb5" stroke-width="2"/>
+  <rect x="24" y="246" width="652" height="34" rx="17" fill="#e8f1fb" stroke="#2f6fb5" stroke-width="1.5"/>
+  <text x="350" y="268" text-anchor="middle" fill="#1d4f86" font-weight="600">Red aislada «solo-anfitrión» 192.168.56.0/24 · sin salida a Internet</text>
+
+  <text x="350" y="308" text-anchor="middle" fill="#5b6472" font-size="11">Laboratorio con datos ficticios · sin pruebas sobre equipos institucionales, malware real ni denegación de servicio</text>
+</svg>
+</div>
+<p style="text-align:center;font-size:9pt;color:#5b6472">Diagrama 1. Laboratorio: dos máquinas virtuales en una red «solo-anfitrión» sin salida a Internet (archivo <code>informe/diagrama_red.svg</code>).</p>
+
+<h2>2.2 Inventario básico</h2>
+<table>
+  <thead><tr><th style="width:26%">Elemento</th><th>Detalle</th></tr></thead>
+  <tbody>
+    <tr><td><b>Servidor</b></td><td>VM <code>UBUNTU_VIRTUAL</code> (nombre de host <code>ubuntu</code>) en Oracle VirtualBox.</td></tr>
+    <tr><td><b>Sistema operativo</b></td><td>Ubuntu 26.04.1 LTS, kernel 7.0.0-31-generic (E08). Tras la actualización queda instalado el kernel 7.0.0-42-generic (E12). La instalación incluye entorno de escritorio (se aprecia en E03 y E09).</td></tr>
+    <tr><td><b>Red</b></td><td>Interfaz <code>enp0s3</code>, 192.168.56.101/24 asignada por DHCP de VirtualBox; MAC 08:00:27:ce:34:b4 (E01).</td></tr>
+    <tr><td><b>Usuarios relevantes</b></td><td><code>juan</code> (administrador con <code>sudo</code>); <code>root</code> (con login SSH habilitado en el estado inicial y bloqueado en el final).</td></tr>
+    <tr><td><b>Máquina de pruebas</b></td><td><code>kali-linux-2026.1-virtualbox-amd64</code>, IP 192.168.56.102 (aparece como origen en el registro E14), Nmap 7.98 y cliente OpenSSH/SCP.</td></tr>
+    <tr><td><b>Hipervisor y red</b></td><td>Oracle VirtualBox; ambas VM con «adaptador solo-anfitrión» (host-only), red 192.168.56.0/24 aislada.</td></tr>
+  </tbody>
+</table>
+<table>
+  <thead><tr><th>Servicio</th><th>Versión</th><th>Puerto</th><th>Función</th><th>Necesario</th><th>Estado final</th></tr></thead>
+  <tbody>
+    <tr><td>Apache HTTP Server</td><td>2.4.66</td><td>80/tcp</td><td>Sitio web de la organización</td><td class="c">Sí</td><td>Activo, permitido en UFW</td></tr>
+    <tr><td>OpenSSH Server</td><td>10.2p1</td><td>22/tcp</td><td>Administración remota</td><td class="c">Sí</td><td>Activo, root bloqueado</td></tr>
+    <tr><td>vsftpd (FTP)</td><td>3.0.5</td><td>21/tcp</td><td>Transferencia de archivos</td><td class="c">No</td><td>Detenido y deshabilitado</td></tr>
+    <tr><td>UFW (firewall)</td><td>0.36.2</td><td>—</td><td>Filtrado de conexiones entrantes</td><td class="c">Sí</td><td>Activo al arrancar</td></tr>
+    <tr><td>tar + scp</td><td>—</td><td>22/tcp</td><td>Respaldo y copia externa</td><td class="c">Sí</td><td>En uso (sección 6)</td></tr>
+  </tbody>
+</table>
+
+<!-- ===================== 3 ===================== -->
+<h1>3. Preparación del estado inicial</h1>
+<p>Sobre el servidor se instalaron OpenSSH, Apache (con una página sencilla de la organización) y vsftpd, y se introdujeron cinco debilidades de configuración de <b>cinco categorías distintas</b>, por encima del mínimo de tres que pide la actividad. Después se apagó la máquina y se conservó una instantánea del estado inicial.</p>
+<table>
+  <thead><tr><th>ID</th><th>Categoría</th><th>Debilidad preparada</th><th>Cómo se creó</th></tr></thead>
+  <tbody>
+    <tr><td><b>H1</b></td><td>Acceso remoto</td><td>Login SSH directo como root</td><td>En <code>/etc/ssh/sshd_config</code>: <code>PermitRootLogin yes</code>, y reinicio de <code>ssh</code>. Se definió una clave de laboratorio para root (no se publica en este informe).</td></tr>
+    <tr><td><b>H2</b></td><td>Permisos</td><td>Sitio web con permisos 777</td><td><code>sudo chmod -R 777 /var/www/html</code> (E03)</td></tr>
+    <tr><td><b>H3</b></td><td>Red / perímetro</td><td>Firewall desactivado</td><td><code>sudo ufw disable</code> (E03)</td></tr>
+    <tr><td><b>H4</b></td><td>Servicios innecesarios</td><td>Servidor FTP expuesto</td><td><code>sudo apt install vsftpd -y</code> (E04)</td></tr>
+    <tr><td><b>H5</b></td><td>Mantenimiento</td><td>Sistema sin actualizar</td><td>No se ejecutó <code>apt upgrade</code> tras la instalación (se comprueba en E08).</td></tr>
+  </tbody>
+</table>
+<div class="nota">La edición de <code>sshd_config</code> con <code>PermitRootLogin yes</code> no se capturó en pantalla; su efecto queda demostrado por el acceso exitoso como root (E08) y por el registro de autenticación (E14).</div>
+
+<figure><img src="../evidencias/E02_instalacion_openssh_server.png" alt="Instalación de OpenSSH Server"><figcaption><span class="n">Figura 1.</span> <b>E02</b> · Instalación de OpenSSH Server</figcaption><div class="expl"><p><b>Comando:</b> <code>sudo apt install openssh-server</code></p><p><b>Qué se observa:</b> Se despliega <code>openssh-server 1:10.2p1-2ubuntu3.8</code>, se crea el usuario de separación de privilegios <code>sshd</code> y las unidades <code>ssh.service</code> / <code>ssh.socket</code>. Las dos últimas líneas muestran un error de tipeo al abrir nano (ver incidencia I01).</p><p><b>Qué demuestra:</b> Cumple el requisito de OpenSSH para la administración remota del servidor.</p></div></figure>
+<figure><img src="../evidencias/E03_apache_permisos777_firewall_apagado.png" alt="Estado inicial: Apache instalado, permisos 777 y firewall apagado"><figcaption><span class="n">Figura 2.</span> <b>E03</b> · Estado inicial: Apache instalado, permisos 777 y firewall apagado</figcaption><div class="expl"><p><b>Comando:</b> <code>sudo chmod -R 777 /var/www/html &amp;&amp; sudo ufw disable</code></p><p><b>Qué se observa:</b> Cierre de la instalación de <code>apache2 2.4.66</code> (módulos y sitio <i>000-default</i> habilitados), seguido de <code>sudo chmod -R 777 /var/www/html</code> y <code>sudo ufw disable</code>, que responde «Firewall stopped and disabled on system startup».</p><p><b>Qué demuestra:</b> Documenta la creación de las debilidades H2 (permisos 777) y H3 (firewall desactivado) sobre un servidor web operativo.</p></div></figure>
+<figure><img src="../evidencias/E04_instalacion_vsftpd_ftp.png" alt="Servicio innecesario: instalación de vsftpd"><figcaption><span class="n">Figura 3.</span> <b>E04</b> · Servicio innecesario: instalación de vsftpd</figcaption><div class="expl"><p><b>Comando:</b> <code>sudo apt install vsftpd -y</code></p><p><b>Qué se observa:</b> Se instala <code>vsftpd 3.0.5-0.4</code> y se crea <code>vsftpd.service</code> habilitado en el arranque (<i>multi-user.target.wants</i>).</p><p><b>Qué demuestra:</b> Documenta H4: un servicio FTP que el escenario no necesita (el servidor solo debe publicar web y permitir administración remota).</p></div></figure>
+<figure><img src="../evidencias/E05_instantanea_estado_inicial_vulnerable.png" alt="Instantánea del estado inicial vulnerable"><figcaption><span class="n">Figura 4.</span> <b>E05</b> · Instantánea del estado inicial vulnerable</figcaption><div class="expl"><p><b>Comando:</b> <code>VirtualBox → Instantánea → Tomar</code></p><p><b>Qué se observa:</b> La VM <b>UBUNTU_VIRTUAL</b> muestra la instantánea «<b>estado inicial vulnerable</b>» tomada el 4/11/2026 a las 10:28 p. m. A la izquierda aparecen también la máquina de pruebas <i>kali-linux-2026.1-virtualbox-amd64</i>.</p><p><b>Qué demuestra:</b> Conserva el estado inicial como exige la actividad: permite volver a él y repetir el diagnóstico.</p></div></figure>
+<figure><img src="../evidencias/E05b_detalle_instantanea.png" alt="Detalle ampliado de la instantánea"><figcaption><span class="n">Figura 5.</span> <b>E05b</b> · Detalle ampliado de la instantánea</figcaption><div class="expl"><p><b>Qué se observa:</b> Recorte de E05 (derivado, sin alterar): la instantánea «<b>estado inicial vulnerable</b>», «Tomada» el <b>4/11/2026 10:28 p. m.</b>, y debajo «Estado actual (modificado)».</p><p><b>Qué demuestra:</b> Confirma el nombre y la hora exactos de la instantánea del estado inicial.</p></div></figure>
+
+<!-- ===================== 4 ===================== -->
+<h1>4. Diagnóstico</h1>
+<h2>4.1 Método</h2>
+<p>Con las dos máquinas en la red solo-anfitrión se identificó la IP del servidor, se escaneó con Nmap desde Kali, se intentó un acceso SSH como <code>root</code> y se revisó el aviso de actualizaciones pendientes. Para cada hallazgo se registra el activo afectado, el riesgo, la prioridad y el control propuesto. Un puerto abierto, por sí solo, no demuestra una vulnerabilidad: se evalúa si el servicio es necesario y qué exposición añade.</p>
+
+<figure><img src="../evidencias/E01_ip_servidor_ubuntu.png" alt="Dirección IP del servidor Ubuntu"><figcaption><span class="n">Figura 6.</span> <b>E01</b> · Dirección IP del servidor Ubuntu</figcaption><div class="expl"><p><b>Comando:</b> <code>ip a</code></p><p><b>Qué se observa:</b> Interfaz <code>enp0s3</code> con <code>192.168.56.101/24</code> (asignada por DHCP, <i>scope global dynamic</i>) y MAC <code>08:00:27:ce:34:b4</code>.</p><p><b>Qué demuestra:</b> Identifica el activo evaluado (la IP objetivo de Nmap y SSH) y confirma que está en la red aislada 192.168.56.0/24.</p></div></figure>
+<figure><img src="../evidencias/E06_nmap_inicial_puertos_21_22_80.png" alt="Diagnóstico con Nmap sobre el estado inicial"><figcaption><span class="n">Figura 7.</span> <b>E06</b> · Diagnóstico con Nmap sobre el estado inicial</figcaption><div class="expl"><p><b>Comando:</b> <code>nmap -sV -p- 192.168.56.101</code></p><p><b>Qué se observa:</b> Desde Kali, Nmap 7.98 informa 3 puertos abiertos: <code>21/tcp ftp vsftpd 3.0.5</code>, <code>22/tcp ssh OpenSSH 10.2p1 Ubuntu 2ubuntu3.8</code> y <code>80/tcp http Apache httpd 2.4.66</code>. Los otros 65 532 puertos están cerrados («reset»). Duración: 45 s.</p><p><b>Qué demuestra:</b> Los puertos cerrados responden con <i>reset</i>, es decir, no hay filtrado: el firewall está apagado. Un puerto abierto por sí solo no es una vulnerabilidad: 22 y 80 son necesarios; el 21 no lo es y por eso se hace hallazgo (H4).</p></div></figure>
+<figure><img src="../evidencias/E07_ssh_root_intentos_fallidos.png" alt="Intentos de acceso SSH como root con contraseña incorrecta"><figcaption><span class="n">Figura 8.</span> <b>E07</b> · Intentos de acceso SSH como root con contraseña incorrecta</figcaption><div class="expl"><p><b>Comando:</b> <code>ssh root@192.168.56.101</code></p><p><b>Qué se observa:</b> Primera conexión: Kali muestra la huella ED25519 del servidor, se acepta («yes») y se agrega a <i>known_hosts</i>. Dos rondas de tres intentos terminan en «Permission denied (publickey,password)».</p><p><b>Qué demuestra:</b> El servidor atiende a <code>root</code> por SSH desde la red. Estos rechazos se deben a una contraseña <b>incorrecta</b> (el registro E14 los muestra como <i>Failed password for root</i>) y no a un control de configuración: <b>no</b> son evidencia de protección; ver E17 para la prueba posterior a los controles.</p></div></figure>
+<figure><img src="../evidencias/E08_ssh_root_acceso_exitoso_inicial.png" alt="Acceso no autorizado exitoso como root (estado inicial)"><figcaption><span class="n">Figura 9.</span> <b>E08</b> · Acceso no autorizado exitoso como root (estado inicial)</figcaption><div class="expl"><p><b>Comando:</b> <code>ssh root@192.168.56.101</code></p><p><b>Qué se observa:</b> Tras autenticarse con la contraseña de root (no visible), aparece el banner de <b>Ubuntu 26.04.1 LTS</b> (kernel 7.0.0-31-generic), el aviso «<b>227 updates can be applied immediately. 133 of these updates are standard security updates</b>» y el prompt <code>root@ubuntu:~#</code>.</p><p><b>Qué demuestra:</b> Demuestra H1 explotada: un equipo de la red obtiene una consola con privilegios totales por SSH. También evidencia H5: 227 actualizaciones pendientes, 133 de seguridad.</p></div></figure>
+
+<h2>4.2 Hallazgos, riesgo y prioridad</h2>
+<table>
+  <thead><tr><th>ID</th><th>Hallazgo y activo afectado</th><th>Riesgo</th><th>Prioridad</th><th>Control propuesto</th><th>Evidencia</th></tr></thead>
+  <tbody>
+    <tr><td><b>H1</b></td><td>Login SSH directo como <b>root</b> habilitado.<br><i>Activo:</i> OpenSSH y cuenta root.</td><td>Cualquier equipo de la red puede probar contraseñas contra la cuenta de máximo privilegio; un acierto da control total del servidor.</td><td class="pri-alta">Alta</td><td>C3: <code>PermitRootLogin no</code>.</td><td>E08, E14</td></tr>
+    <tr><td><b>H2</b></td><td>Sitio web con permisos <b>777</b>.<br><i>Activo:</i> <code>/var/www/html</code>.</td><td>Cualquier cuenta local o proceso comprometido puede modificar o borrar el sitio, o subir código que Apache serviría.</td><td class="pri-alta">Alta</td><td>C4: dueño <code>www-data</code> y permisos 755.</td><td>E03</td></tr>
+    <tr><td><b>H3</b></td><td><b>Firewall UFW desactivado</b>.<br><i>Activo:</i> todo el host.</td><td>Todo servicio que escuche, hoy o en el futuro, queda expuesto sin filtro; se pierde la defensa en profundidad.</td><td class="pri-alta">Alta</td><td>C5: denegar lo entrante por defecto y permitir solo 22 y 80.</td><td>E03, E06</td></tr>
+    <tr><td><b>H4</b></td><td>Servicio innecesario <b>vsftpd</b> (FTP, 21/tcp).<br><i>Activo:</i> servicio FTP.</td><td>El escenario no requiere FTP; amplía la superficie de ataque y el FTP clásico transmite credenciales y datos sin cifrar.</td><td class="pri-media">Media</td><td>C2: detener y deshabilitar el servicio.</td><td>E04, E06</td></tr>
+    <tr><td><b>H5</b></td><td>Sistema <b>sin actualizar</b>: 227 paquetes pendientes, 133 de seguridad.<br><i>Activo:</i> paquetes del sistema operativo.</td><td>Vulnerabilidades ya conocidas y corregidas por el fabricante siguen presentes en el servidor.</td><td class="pri-alta">Alta</td><td>C1: <code>apt update &amp;&amp; apt upgrade</code>.</td><td>E08</td></tr>
+  </tbody>
+</table>
+<p style="font-size:9.5pt">Criterio de prioridad: <b>alta</b> cuando el hallazgo permite tomar el control, modificar el sitio o deja sin protección a todo el host; <b>media</b> cuando amplía la superficie de ataque sin ser, por sí solo, un acceso directo. Los puertos 22 y 80 también estaban abiertos, pero son servicios legítimos del escenario y no se tratan como hallazgos por estar abiertos.</p>
+
+<!-- ===================== 5 ===================== -->
+<h1>5. Controles aplicados</h1>
+<p>Cada control responde a un hallazgo. El sitio web (80/tcp) y la administración legítima (22/tcp con un usuario sin privilegios de root) debían seguir funcionando; por eso las reglas de UFW para 22 y 80 se crean <b>antes</b> de activar el firewall.</p>
+<table>
+  <thead><tr><th>ID</th><th>Hallazgo</th><th>Control</th><th>Comando o configuración</th><th>Por qué este control</th></tr></thead>
+  <tbody>
+    <tr><td><b>C1</b></td><td>H5</td><td>Actualizar el sistema</td><td><code>sudo apt update &amp;&amp; sudo apt upgrade -y</code></td><td>Instala las correcciones de seguridad publicadas. Instaló el kernel 7.0.0-42 (E12), que se activa al reiniciar.</td></tr>
+    <tr><td><b>C2</b></td><td>H4</td><td>Deshabilitar el servicio innecesario</td><td><code>sudo systemctl stop vsftpd &amp;&amp; sudo systemctl disable vsftpd</code></td><td>Detener cierra el puerto 21 ahora; deshabilitar evita que arranque con el sistema. Se conserva el paquete para poder revertir en el laboratorio.</td></tr>
+    <tr><td><b>C3</b></td><td>H1</td><td>Bloquear el login SSH directo como root</td><td><code>PermitRootLogin no</code> en <code>sshd_config</code> y <code>sudo systemctl restart ssh</code></td><td>Obliga a entrar con un usuario sin privilegios y escalar con <code>sudo</code>, que además queda registrado.</td></tr>
+    <tr><td><b>C4</b></td><td>H2</td><td>Corregir permisos del sitio</td><td><code>sudo chown -R www-data:www-data /var/www/html</code><br><code>sudo chmod -R 755 /var/www/html</code></td><td>Apache es el dueño legítimo; el resto solo puede leer y recorrer los directorios.</td></tr>
+    <tr><td><b>C5</b></td><td>H3</td><td>Configurar el firewall</td><td><code>ufw default deny incoming</code><br><code>ufw default allow outgoing</code><br><code>ufw allow 22/tcp</code> · <code>ufw allow 80/tcp</code><br><code>ufw enable</code></td><td>Bloquea todo lo entrante salvo SSH y HTTP; la salida queda libre para actualizaciones y respuestas del sitio. El puerto 21 queda bloqueado aunque el servicio se reactivara.</td></tr>
+  </tbody>
+</table>
+
+<figure><img src="../evidencias/E09_control1_apt_upgrade_en_curso.png" alt="Control C1: actualización del sistema en curso"><figcaption><span class="n">Figura 10.</span> <b>E09</b> · Control C1: actualización del sistema en curso</figcaption><div class="expl"><p><b>Comando:</b> <code>sudo apt upgrade -y</code></p><p><b>Qué se observa:</b> La terminal muestra <code>sudo apt upgrade -y</code> desempaquetando paquetes (progreso 24 %). El reloj de la VM marca Nov 6 01:09 (UTC) y VirtualBox indica «estado inicial vulnerable» como base de la VM.</p><p><b>Qué demuestra:</b> Muestra la aplicación del control de parcheo. El resultado final se comprueba con <code>apt list --upgradable</code> (evidencia <span class="vivo">P5 (en vivo)</span>).</p></div></figure>
+<figure><img src="../evidencias/E10_control3_sshd_config_permitrootlogin_no.png" alt="Control C3: PermitRootLogin no en sshd_config"><figcaption><span class="n">Figura 11.</span> <b>E10</b> · Control C3: PermitRootLogin no en sshd_config</figcaption><div class="expl"><p><b>Comando:</b> <code>sudo nano /etc/ssh/sshd_config</code></p><p><b>Qué se observa:</b> El editor nano 8.7.1 muestra <code>/etc/ssh/sshd_config</code> y, en la sección <i>Authentication</i>, la línea <code>PermitRootLogin no</code> sin el <code>#</code> inicial.</p><p><b>Qué demuestra:</b> Es la directiva que impide el inicio de sesión SSH directo como root; la administración queda a cargo de un usuario sin privilegios que usa <code>sudo</code>.</p></div></figure>
+<figure><img src="../evidencias/E11_control5_ufw_default_deny.png" alt="Control C5: política de entrada por defecto «deny»"><figcaption><span class="n">Figura 12.</span> <b>E11</b> · Control C5: política de entrada por defecto «deny»</figcaption><div class="expl"><p><b>Comando:</b> <code>sudo ufw default deny incoming</code></p><p><b>Qué se observa:</b> UFW responde «Default incoming policy changed to 'deny'».</p><p><b>Qué demuestra:</b> Establece el principio de mínimo privilegio en red: todo lo entrante se bloquea salvo lo que se permita explícitamente.</p></div></figure>
+<figure><img src="../evidencias/E12_controles_2_a_5_consolidado.png" alt="Controles C2 a C5 aplicados en secuencia"><figcaption><span class="n">Figura 13.</span> <b>E12</b> · Controles C2 a C5 aplicados en secuencia</figcaption><div class="expl"><p><b>Comando:</b> <code>systemctl stop/disable vsftpd · nano sshd_config · systemctl restart ssh · chown/chmod · ufw …</code></p><p><b>Qué se observa:</b> Se ven, en orden: <code>stop</code> y <code>disable vsftpd</code> (con «Removed … vsftpd.service»); <code>nano /etc/ssh/sshd_config</code>; <code>systemctl restart ssh</code>; <code>chown -R www-data:www-data</code> y <code>chmod -R 755 /var/www/html</code>; <code>ufw default deny/allow</code>, <code>allow 22/tcp</code>, <code>allow 80/tcp</code> («Rules updated» e «(v6)») y <code>ufw enable</code> → «Firewall is active and enabled on system startup». Arriba, el final de la actualización: <i>update-grub</i> encuentra <code>initrd.img-7.0.0-42-generic</code>, el kernel nuevo.</p><p><b>Qué demuestra:</b> Las reglas de 22 y 80 se crean <b>antes</b> de activar UFW, de modo que no se pierde la administración remota ni el sitio web. El mensaje «enabled on system startup» indica que el firewall quedó configurado para arrancar con el sistema; se comprueba tras reiniciar en <span class="vivo">P10 (en vivo)</span>.</p></div></figure>
+
+<!-- ===================== 6 ===================== -->
+<h1>6. Registros, respaldo y recuperación</h1>
+<h2>6.1 Revisión de registros de acceso y autenticación</h2>
+<p>Ubuntu registra los accesos y los comandos privilegiados en <code>/var/log/auth.log</code>. Las dos consultas siguientes permiten localizar los eventos relevantes. El archivo contiene caracteres no imprimibles, por lo que <code>grep</code> necesita la opción <code>-a</code> (ver incidencia I04).</p>
+<table>
+  <thead><tr><th>Qué se busca</th><th>Comando</th></tr></thead>
+  <tbody>
+    <tr><td>Accesos SSH aceptados y fallidos</td><td><code>sudo grep -a "sshd" /var/log/auth.log | tail -n 20</code></td></tr>
+    <tr><td>Comandos ejecutados con sudo</td><td><code>sudo grep -a "root" /var/log/auth.log | tail -n 20</code></td></tr>
+    <tr><td>Solo accesos exitosos</td><td><code>sudo grep -a "Accepted" /var/log/auth.log</code></td></tr>
+  </tbody>
+</table>
+<figure><img src="../evidencias/E13_log_auth_sudo_comandos_root.png" alt="Registro de auditoría de comandos privilegiados"><figcaption><span class="n">Figura 14.</span> <b>E13</b> · Registro de auditoría de comandos privilegiados</figcaption><div class="expl"><p><b>Comando:</b> <code>sudo grep -a "root" /var/log/auth.log | tail -n 20</code></p><p><b>Qué se observa:</b> Cada <code>sudo</code> queda registrado con usuario, terminal, directorio y comando: <code>juan : TTY=/dev/pts/0 ; USER=root ; COMMAND=/usr/sbin/ufw default deny incoming</code>, <code>… allow 22/tcp</code>, <code>… allow 80/tcp</code>, <code>… enable</code> (01:28–01:31 UTC), con apertura y cierre de sesión <i>pam_unix</i>. También aparecen las tareas CRON de root.</p><p><b>Qué demuestra:</b> Da trazabilidad: se puede reconstruir quién aplicó cada control y cuándo. Los registros usan hora UTC (Colombia es UTC−5).</p></div></figure>
+<figure><img src="../evidencias/E14_log_auth_sshd_failed_accepted.png" alt="Registro de autenticación SSH: intentos fallidos y acceso aceptado"><figcaption><span class="n">Figura 15.</span> <b>E14</b> · Registro de autenticación SSH: intentos fallidos y acceso aceptado</figcaption><div class="expl"><p><b>Comando:</b> <code>sudo grep -a "sshd" /var/log/auth.log | tail -n 20</code></p><p><b>Qué se observa:</b> Seis líneas <code>Failed password for root from 192.168.56.102</code> (00:43 y 00:44 UTC, tres por conexión), dos <code>Connection closed by authenticating user root … [preauth]</code>, y luego <code>Accepted password for root from 192.168.56.102 port 55644 ssh2</code> a las 00:49:33, con la sesión cerrada a las 00:55:03. Más abajo: <code>nano /etc/ssh/sshd_config</code> (01:24:42) y <code>Server listening on 0.0.0.0 port 22</code> (01:26:10), el reinicio de SSH tras el cambio.</p><p><b>Qué demuestra:</b> Permite localizar el evento sospechoso (acceso de root desde 192.168.56.102) y el cambio de configuración posterior. 00:49 UTC equivale a 19:49 hora local, que coincide con la captura E08.</p></div></figure>
+
+<h2>6.2 Respaldo</h2>
+<p><b>Procedimiento breve.</b> (1) Crear el archivo comprimido con el sitio web y las configuraciones críticas. (2) Verificar su contenido con <code>tar -tzf respaldo_servidor.tar.gz</code>. (3) Copiarlo <b>fuera de la máquina virtual del servidor</b> con <code>scp</code> desde Kali. (4) Comprobar la copia con <code>sha256sum</code> en ambos extremos. El respaldo se hace antes de cada cambio relevante y, en un servidor real, de forma programada.</p>
+<figure><img src="../evidencias/E15_respaldo_tar_creado.png" alt="Creación del respaldo con tar"><figcaption><span class="n">Figura 16.</span> <b>E15</b> · Creación del respaldo con tar</figcaption><div class="expl"><p><b>Comando:</b> <code>sudo tar -czvf respaldo_servidor.tar.gz /var/www/html /etc/ssh/sshd_config /etc/ufw/ufw.conf</code></p><p><b>Qué se observa:</b> tar lista <code>/var/www/html/</code>, <code>/var/www/html/index.html</code>, <code>/etc/ssh/sshd_config</code> y <code>/etc/ufw/ufw.conf</code>. El aviso «Removing leading '/'» es normal: guarda rutas relativas.</p><p><b>Qué demuestra:</b> Respalda el contenido web y las configuraciones críticas, ya con los controles aplicados.</p></div></figure>
+<div class="envivo"><p class="tt">▶ Verificación en vivo · P9 — Respaldo fuera de la VM del servidor</p><p><b>Dónde:</b> Kali</p><p><b>Comando:</b> <code>scp juan@192.168.56.101:~/respaldo_servidor.tar.gz . ; ls -l respaldo_servidor.tar.gz</code></p><p><b>Resultado esperado:</b> Barra de progreso del scp y el archivo respaldo_servidor.tar.gz presente en Kali (otra máquina).</p><p class='nota'>Esta prueba se ejecuta en directo durante la sustentación, como exige la actividad; su captura se anexa a la carpeta de evidencias.</p></div>
+
+<h2>6.3 Restauración de un archivo de prueba</h2>
+<p>Para demostrar la recuperación se borra <code>/var/www/html/index.html</code> (simula un ataque o pérdida), se comprueba que el sitio deja de mostrarse y se restaura desde el respaldo con <code>sudo tar -xzvf respaldo_servidor.tar.gz -C /</code>.</p>
+<p><b>Restaurar solo un archivo.</b> Para no sobrescribir otras configuraciones, se puede extraer un único archivo indicando su ruta <i>sin la barra inicial</i> (así la guarda <code>tar</code>): <code>sudo tar -xzvf respaldo_servidor.tar.gz -C / var/www/html/index.html</code>. El contenido del respaldo se consulta con <code>tar -tzf respaldo_servidor.tar.gz</code>. <b>Precaución:</b> el respaldo debe ser posterior a la aplicación de los controles; restaurar uno tomado en el estado vulnerable devolvería <code>PermitRootLogin yes</code> y los permisos 777.</p>
+<div class="envivo"><p class="tt">▶ Verificación en vivo · P7 — Pérdida simulada: sitio sin index.html</p><p><b>Dónde:</b> Ubuntu + Kali</p><p><b>Comando:</b> <code>sudo rm /var/www/html/index.html   y recargar http://192.168.56.101/</code></p><p><b>Resultado esperado:</b> El navegador mostrando una lista vacía o un error en lugar de la página.</p><p class='nota'>Esta prueba se ejecuta en directo durante la sustentación, como exige la actividad; su captura se anexa a la carpeta de evidencias.</p></div>
+<figure><img src="../evidencias/E16_restauracion_tar_extraido.png" alt="Restauración desde el respaldo"><figcaption><span class="n">Figura 19.</span> <b>E16</b> · Restauración desde el respaldo</figcaption><div class="expl"><p><b>Comando:</b> <code>sudo tar -xzvf respaldo_servidor.tar.gz -C /</code></p><p><b>Qué se observa:</b> tar extrae <code>var/www/html/</code>, <code>var/www/html/index.html</code>, <code>etc/ssh/sshd_config</code> y <code>etc/ufw/ufw.conf</code> en sus rutas originales (<code>-C /</code>).</p><p><b>Qué demuestra:</b> El archivo de prueba (<code>index.html</code>) se recupera desde el respaldo. La secuencia completa borrar → sitio caído → restaurar → sitio de vuelta se documenta en <span class="vivo">P7 (en vivo)</span> y <span class="vivo">P8 (en vivo)</span>.</p></div></figure>
+<div class="envivo"><p class="tt">▶ Verificación en vivo · P8 — Sitio recuperado tras la restauración</p><p><b>Dónde:</b> Kali</p><p><b>Comando:</b> <code>(después de E16) recargar http://192.168.56.101/</code></p><p><b>Resultado esperado:</b> La página de la organización otra vez funcionando: prueba de restauración exitosa.</p><p class='nota'>Esta prueba se ejecuta en directo durante la sustentación, como exige la actividad; su captura se anexa a la carpeta de evidencias.</p></div>
+
+<h2>6.4 Procedimiento ante un acceso sospechoso</h2>
+<table><thead><tr><th style='width:22%'>Rol</th><th style='width:22%'>Responsable</th><th>Función</th></tr></thead><tbody><tr><td><b>Administrador del servidor</b></td><td>Juan Camilo Nieto Arboleda (cuenta juan)</td><td>Primer respondiente: confirma el evento en los registros, contiene (bloqueo en UFW, cierre de sesiones) y restaura desde el respaldo.</td></tr><tr><td><b>Responsable de seguridad</b></td><td>Juan Diego Vasquez</td><td>Decide la severidad, ordena aislar la máquina si hay compromiso y valida que los controles sigan activos.</td></tr><tr><td><b>Contacto de la organización</b></td><td>Gerencia de Café Montaña S.A.S. (contacto ficticio)</td><td>Recibe el reporte del incidente, autoriza ventanas de recuperación y comunica a los usuarios afectados.</td></tr></tbody></table>
+<ol>
+  <li><b>Detectar y confirmar.</b> Revisar <code>sudo grep -a "Accepted\|Failed" /var/log/auth.log | tail -n 30</code>, <code>last -n 10</code> y <code>who</code>. Anotar IP de origen, usuario y hora (UTC).</li>
+  <li><b>Contener.</b> Bloquear la IP de origen con <code>sudo ufw insert 1 deny from &lt;IP_SOSPECHOSA&gt;</code>; cerrar las sesiones activas; cambiar las claves de las cuentas implicadas. Si hay indicios de compromiso de <code>root</code>, desconectar la VM de la red.</li>
+  <li><b>Preservar evidencia.</b> Copiar el registro (<code>sudo cp -a /var/log/auth.log ~/auth_incidente.log</code>) y tomar una instantánea de la VM <b>antes</b> de modificar nada.</li>
+  <li><b>Erradicar y recuperar.</b> Verificar permisos (<code>ls -ld /var/www/html</code>) y la configuración efectiva (<code>sudo sshd -T | grep permitrootlogin</code>); restaurar desde el respaldo externo y aplicar las actualizaciones pendientes.</li>
+  <li><b>Notificar y documentar.</b> Informar al contacto de la organización y registrar línea de tiempo, causa y acciones tomadas.</li>
+  <li><b>Mejorar.</b> Ajustar los controles que fallaron (por ejemplo, limitar SSH a la IP del administrador).</li>
+</ol>
+
+<!-- ===================== 7 ===================== -->
+<h1>7. Validación del resultado</h1>
+<p>La validación repite las pruebas iniciales desde Kali y comprueba los accesos permitidos y bloqueados, los permisos, la disponibilidad del sitio, la restauración y la persistencia de los controles después de reiniciar. En la columna «Estado», <b>✔ Evidenciado</b> indica que existe captura de la prueba; <b>▶ En vivo</b> indica que la prueba se ejecuta durante la sustentación (la actividad exige verificar el estado protegido en directo) y que aquí se documenta su comando y su resultado esperado.</p>
+<table>
+  <thead><tr><th>#</th><th>Prueba</th><th>Resultado esperado</th><th>Evidencia</th><th>Estado</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td>SSH directo como root (bloqueado)</td><td>«Permission denied» aun con la clave correcta</td><td>E17</td><td><span class="ok">✔ Evidenciado</span></td></tr>
+    <tr><td>2</td><td>SSH del administrador (permitido)</td><td>Sesión iniciada como <code>juan</code></td><td><span class="vivo">P6 (en vivo)</span></td><td><span class="viv">▶ En vivo</span></td></tr>
+    <tr><td>3</td><td>Sitio web disponible</td><td>HTTP 200 y página visible</td><td><span class="vivo">P1 (en vivo)</span></td><td><span class="viv">▶ En vivo</span></td></tr>
+    <tr><td>4</td><td>Puertos expuestos (Nmap)</td><td>Solo 22 y 80 abiertos</td><td><span class="vivo">P2 (en vivo)</span></td><td><span class="viv">▶ En vivo</span></td></tr>
+    <tr><td>5</td><td>Firewall</td><td>Activo; deniega entrante; permite 22 y 80</td><td>E12, P3</td><td><span class="ok">✔ Evidenciado</span></td></tr>
+    <tr><td>6</td><td>Permisos del sitio</td><td>755 con dueño <code>www-data</code></td><td>P4</td><td><span class="ok">✔ Evidenciado</span></td></tr>
+    <tr><td>7</td><td>Configuración efectiva y servicios</td><td><code>permitrootlogin no</code>; vsftpd inactivo; sin parches pendientes</td><td><span class="vivo">P5 (en vivo)</span></td><td><span class="viv">▶ En vivo</span></td></tr>
+    <tr><td>8</td><td>Restauración de un archivo</td><td><code>index.html</code> recuperado y sitio de vuelta</td><td>E16, <span class="vivo">P7 (en vivo)</span>, <span class="vivo">P8 (en vivo)</span></td><td><span class="viv">◐ Parcial · resto en vivo</span></td></tr>
+    <tr><td>9</td><td>Respaldo fuera de la VM</td><td>Copia del <code>.tar.gz</code> en Kali</td><td><span class="vivo">P9 (en vivo)</span></td><td><span class="viv">▶ En vivo</span></td></tr>
+    <tr><td>10</td><td>Persistencia tras reiniciar</td><td>Los controles siguen activos</td><td><span class="vivo">P10 (en vivo)</span></td><td><span class="viv">▶ En vivo</span></td></tr>
+  </tbody>
+</table>
+
+<h2>7.1 Acceso bloqueado y acceso permitido</h2>
+<figure><img src="../evidencias/E17_validacion_ssh_root_denegado.png" alt="Validación: acceso SSH como root rechazado tras los controles"><figcaption><span class="n">Figura 21.</span> <b>E17</b> · Validación: acceso SSH como root rechazado tras los controles</figcaption><div class="expl"><p><b>Comando:</b> <code>ssh root@192.168.56.101</code></p><p><b>Qué se observa:</b> Desde Kali, tres solicitudes de contraseña terminan en «Permission denied (publickey,password)».</p><p><b>Qué demuestra:</b> Con <code>PermitRootLogin no</code> el servidor rechaza el acceso directo de root. El mensaje es idéntico al de los intentos fallidos de E07, por lo que esta captura por sí sola no distingue entre una contraseña incorrecta y el bloqueo por configuración. La comprobación concluyente es la configuración efectiva <code>sshd -T</code> (evidencia <span class="vivo">P5 (en vivo)</span>), que se muestra en vivo en la sustentación probando además con la contraseña correcta de root.</p></div></figure>
+<div class="envivo"><p class="tt">▶ Verificación en vivo · P6 — Acceso permitido: administrador legítimo por SSH</p><p><b>Dónde:</b> Kali</p><p><b>Comando:</b> <code>ssh juan@192.168.56.101 'hostname; id'</code></p><p><b>Resultado esperado:</b> Conexión exitosa con el usuario administrador (no root). Es el «acceso permitido» que pide la sustentación, frente al bloqueado de E17.</p><p class='nota'>Esta prueba se ejecuta en directo durante la sustentación, como exige la actividad; su captura se anexa a la carpeta de evidencias.</p></div>
+<h2>7.2 Sitio, puertos, firewall y permisos</h2>
+<div class="envivo"><p class="tt">▶ Verificación en vivo · P1 — Sitio web funcionando tras los controles</p><p><b>Dónde:</b> Kali</p><p><b>Comando:</b> <code>Navegador en http://192.168.56.101/   (y   curl -I http://192.168.56.101/ )</code></p><p><b>Resultado esperado:</b> La página de la organización cargando y «HTTP/1.1 200 OK». Demuestra que los controles no afectaron el servicio.</p><p class='nota'>Esta prueba se ejecuta en directo durante la sustentación, como exige la actividad; su captura se anexa a la carpeta de evidencias.</p></div>
+<div class="envivo"><p class="tt">▶ Verificación en vivo · P2 — Nmap después de los controles</p><p><b>Dónde:</b> Kali</p><p><b>Comando:</b> <code>nmap -sV -p- -T4 --max-retries 1 192.168.56.101     (script 05_validacion_kali.sh)</code></p><p><b>Resultado esperado:</b> Solo 22/tcp (ssh) y 80/tcp (http) abiertos; el 21 ya no aparece abierto (filtered/closed) y el resto figura como filtered. Compárese con E06.</p><p class='nota'>Esta prueba se ejecuta en directo durante la sustentación, como exige la actividad; su captura se anexa a la carpeta de evidencias.</p></div>
+<figure><img src="../evidencias/pendientes/P3_ufw_status.png" alt="Firewall UFW activo y sus reglas"><figcaption><span class="n">Figura 25.</span> <b>P3</b> · Firewall UFW activo y sus reglas</figcaption><div class="expl"><p><b>Comando:</b> <code>sudo ufw status verbose     (script 04_validacion_ubuntu.sh)</code></p><p><b>Qué demuestra:</b> «Status: active», «Default: deny (incoming), allow (outgoing)» y las reglas 22/tcp y 80/tcp en ALLOW IN.</p></div></figure>
+<figure><img src="../evidencias/pendientes/P4_permisos_755.png" alt="Permisos corregidos del sitio web"><figcaption><span class="n">Figura 26.</span> <b>P4</b> · Permisos corregidos del sitio web</figcaption><div class="expl"><p><b>Comando:</b> <code>ls -ld /var/www/html ; ls -l /var/www/html</code></p><p><b>Qué demuestra:</b> <code>drwxr-xr-x … www-data www-data</code> (755) en lugar de <code>drwxrwxrwx</code> (777).</p></div></figure>
+<h2>7.3 Configuración efectiva y persistencia</h2>
+<div class="envivo"><p class="tt">▶ Verificación en vivo · P5 — Configuración efectiva de SSH, FTP inactivo y parches pendientes</p><p><b>Dónde:</b> Ubuntu</p><p><b>Comando:</b> <code>sudo sshd -T | grep -i permitrootlogin ; systemctl is-active vsftpd ; apt list --upgradable | wc -l</code></p><p><b>Resultado esperado:</b> <code>permitrootlogin no</code>, vsftpd <code>inactive</code> y cero (o casi cero) paquetes pendientes.</p><p class='nota'>Esta prueba se ejecuta en directo durante la sustentación, como exige la actividad; su captura se anexa a la carpeta de evidencias.</p></div>
+<div class="envivo"><p class="tt">▶ Verificación en vivo · P10 — Persistencia de los controles después de reiniciar</p><p><b>Dónde:</b> Ubuntu + Kali</p><p><b>Comando:</b> <code>sudo reboot  → iniciar sesión → bash 04_validacion_ubuntu.sh   (y repetir P1 y P2 desde Kali)</code></p><p><b>Resultado esperado:</b> Tras el reinicio: UFW sigue active, vsftpd inactive, permitrootlogin no y el sitio responde.</p><p class='nota'>Esta prueba se ejecuta en directo durante la sustentación, como exige la actividad; su captura se anexa a la carpeta de evidencias.</p></div>
+
+<!-- ===================== 8 ===================== -->
+<h1>8. Tabla comparativa de hallazgos, controles y resultados</h1>
+<table>
+  <thead><tr><th style="width:25%">Hallazgo y riesgo</th><th style="width:22%">Evidencia inicial</th><th style="width:25%">Control aplicado</th><th>Prueba final y resultado</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><b>H1 · Login SSH directo como root.</b> Cualquier equipo de la red puede probar contraseñas contra la cuenta de máximo privilegio; un acierto da control total. <i>Prioridad alta.</i></td>
+      <td>Consola <code>root@ubuntu</code> obtenida desde Kali (E08). Registro: seis <i>Failed password for root</i> y un <i>Accepted password for root</i> desde 192.168.56.102 (E14).</td>
+      <td>C3: <code>PermitRootLogin no</code> y reinicio de <code>ssh</code> (E10, E12). La administración pasa a un usuario sin privilegios con <code>sudo</code>.</td>
+      <td><code>ssh root@…</code> → «Permission denied» (E17). En vivo: configuración efectiva <code>permitrootlogin no</code> (<span class="vivo">P5 (en vivo)</span>) y acceso permitido de <code>juan</code> (<span class="vivo">P6 (en vivo)</span>).</td>
+    </tr>
+    <tr>
+      <td><b>H2 · Sitio web con permisos 777.</b> Cualquier cuenta local o proceso comprometido puede modificar o borrar el sitio. <i>Prioridad alta.</i></td>
+      <td><code>chmod -R 777 /var/www/html</code> (E03).</td>
+      <td>C4: <code>chown -R www-data:www-data</code> y <code>chmod -R 755</code> (E12).</td>
+      <td>Permisos <code>drwxr-xr-x www-data</code> (P4); archivo recuperable desde el respaldo (E16). En vivo: sitio funcionando (<span class="vivo">P1 (en vivo)</span>).</td>
+    </tr>
+    <tr>
+      <td><b>H3 · Firewall desactivado.</b> Todo servicio que escuche queda expuesto sin filtro. <i>Prioridad alta.</i></td>
+      <td><code>ufw disable</code> (E03). Nmap: puertos 21, 22 y 80 abiertos y el resto cerrado con <i>reset</i>, sin filtrado (E06).</td>
+      <td>C5: <code>deny incoming</code>, <code>allow outgoing</code>, <code>allow 22/tcp</code>, <code>allow 80/tcp</code>, <code>enable</code> (E11, E12).</td>
+      <td><code>ufw status verbose</code>: activo (P3). En vivo: Nmap solo debe ver 22 y 80 (<span class="vivo">P2 (en vivo)</span>) y los controles deben persistir tras reiniciar (<span class="vivo">P10 (en vivo)</span>).</td>
+    </tr>
+    <tr>
+      <td><b>H4 · Servicio FTP innecesario (vsftpd).</b> Amplía la superficie de ataque y transmite datos sin cifrar. <i>Prioridad media.</i></td>
+      <td>Instalación de vsftpd (E04). Nmap: <code>21/tcp open ftp vsftpd 3.0.5</code> (E06).</td>
+      <td>C2: <code>systemctl stop</code> y <code>disable vsftpd</code> (E12). Puerto 21 además bloqueado por UFW.</td>
+      <td>En vivo: el puerto 21 no debe aparecer abierto (<span class="vivo">P2 (en vivo)</span>) y <code>systemctl is-active vsftpd</code> debe responder inactive (<span class="vivo">P5 (en vivo)</span>).</td>
+    </tr>
+    <tr>
+      <td><b>H5 · Sistema sin actualizar.</b> Vulnerabilidades conocidas sin corregir. <i>Prioridad alta.</i></td>
+      <td>Banner de acceso: «227 updates can be applied immediately · 133 … security updates» (E08).</td>
+      <td>C1: <code>apt update &amp;&amp; apt upgrade -y</code> (E09, E12). Instala el kernel 7.0.0-42.</td>
+      <td>En vivo: conteo de paquetes pendientes (<span class="vivo">P5 (en vivo)</span>) y kernel activo tras reiniciar (<span class="vivo">P10 (en vivo)</span>).</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ===================== 9 ===================== -->
+<h1>9. Conclusiones, riesgos pendientes y fuentes</h1>
+<h2>9.1 Conclusiones</h2>
+<ul>
+  <li>Se documentaron <b>cinco debilidades de cinco categorías distintas</b> y se conservó una instantánea del estado inicial (E05), con lo que la comparación antes/después es verificable.</li>
+  <li>El diagnóstico mostró tres puertos abiertos sin filtrado (E06) y un acceso SSH exitoso como root (E08) en un sistema con 227 actualizaciones pendientes. El puerto 21 se tipificó como hallazgo por ser un servicio innecesario y sin cifrado, no por estar abierto.</li>
+  <li>Se aplicaron cinco controles, cada uno ligado a un hallazgo (E09–E12). Crear las reglas de 22 y 80 antes de activar UFW permitió proteger el servidor sin perder la administración ni el sitio.</li>
+  <li>Con el control C3 activo el servidor rechazó el acceso directo de root por SSH (E17). Los registros de <code>auth.log</code> permiten reconstruir tanto el acceso inicial como los cambios de configuración (E13, E14), lo que sirve para la respuesta a incidentes.</li>
+  <li>El respaldo con <code>tar</code> permitió recuperar el archivo de prueba (E16). Una copia fuera de la VM es indispensable: un respaldo guardado solo en el servidor se pierde junto con él.</li>
+  <li>El resultado es un servidor <b>mejor protegido y funcional</b>, no «invulnerable»: persisten los riesgos de la sección siguiente.</li>
+</ul>
+
+<h2>9.2 Riesgos pendientes y limitaciones</h2>
+<table>
+  <thead><tr><th style="width:42%">Riesgo o limitación</th><th>Mitigación recomendada</th></tr></thead>
+  <tbody>
+    <tr><td>SSH sigue aceptando contraseñas y no hay protección contra fuerza bruta sobre el usuario <code>juan</code>.</td><td>Autenticación por clave pública (<code>PasswordAuthentication no</code>), <code>AllowUsers juan</code>, <code>MaxAuthTries</code> bajo y <code>fail2ban</code> o <code>ufw limit 22/tcp</code>.</td></tr>
+    <tr><td>La regla <code>allow 22/tcp</code> admite conexiones desde cualquier IP de la red.</td><td>Limitar el origen: <code>ufw allow from &lt;IP_admin&gt; to any port 22 proto tcp</code>.</td></tr>
+    <tr><td>El sitio se sirve por HTTP sin cifrar.</td><td>HTTPS con certificado TLS (autofirmado en laboratorio; Let's Encrypt en producción).</td></tr>
+    <tr><td>Los archivos web tienen permisos 755, incluyendo el bit de ejecución que no necesitan.</td><td>644 para archivos y 755 para directorios.</td></tr>
+    <tr><td>El respaldo es manual, sin cifrar y con una sola copia externa. Además, <code>/etc/ufw/ufw.conf</code> solo guarda ENABLED/LOGLEVEL: las reglas están en <code>user.rules</code> y <code>user6.rules</code>, que la ejecución documentada (E15) no incluyó.</td><td>Programar el respaldo con <code>cron</code>, cifrarlo con <code>gpg</code>, verificar con <code>sha256sum</code>, mantener varias copias e incluir las reglas de UFW (ya incluidas en el script 03).</td></tr>
+    <tr><td>La validación final completa (Nmap posterior, acceso permitido, sitio, copia externa y reinicio) no quedó capturada: la máquina virtual se saturó durante la toma de evidencias.</td><td>Se ejecuta en directo en la sustentación y se anexan las capturas a la carpeta de evidencias; el procedimiento y los scripts <code>04</code> y <code>05</code> permiten repetirla en pocos minutos.</td></tr>
+    <tr><td>El servidor usa Ubuntu con entorno de escritorio, que añade paquetes y superficie de ataque frente a Ubuntu Server.</td><td>En un entorno real, usar Ubuntu Server LTS y la instalación mínima.</td></tr>
+    <tr><td>Las actualizaciones se aplicaron manualmente; el kernel nuevo requiere reiniciar.</td><td>Activar <code>unattended-upgrades</code> y definir una ventana de mantenimiento.</td></tr>
+    <tr><td>No hay monitoreo ni alertas: los registros se revisan a mano.</td><td>Centralizar registros y alertar sobre intentos fallidos repetidos.</td></tr>
+    <tr><td>El alcance fue la configuración del sistema; no se evaluó la seguridad de una aplicación web ni vulnerabilidades específicas de Apache.</td><td>Ampliar el diagnóstico con análisis de la aplicación y escaneo de vulnerabilidades en un entorno autorizado.</td></tr>
+  </tbody>
+</table>
+
+<h2>9.3 Fuentes consultadas</h2>
+<p>Documentación oficial y guías de referencia en las que se apoyan los controles y los comandos usados en este trabajo.</p>
+<ol style="font-size:9.5pt">
+  <li>OpenBSD Project. <i>sshd_config(5) — OpenSSH daemon configuration file</i>. https://man.openbsd.org/sshd_config</li>
+  <li>Canonical. <i>Ubuntu Server documentation</i> (sección de seguridad: firewall con UFW). https://documentation.ubuntu.com/server/</li>
+  <li>Nmap Project. <i>Nmap Reference Guide</i>. https://nmap.org/book/man.html</li>
+  <li>Apache Software Foundation. <i>Security Tips — Apache HTTP Server 2.4</i>. https://httpd.apache.org/docs/2.4/misc/security_tips.html</li>
+  <li>Souppaya, M. y Scarfone, K. (2008). <i>Guide to General Server Security</i> (NIST SP 800-123). https://csrc.nist.gov/pubs/sp/800/123/final</li>
+  <li>Center for Internet Security. <i>CIS Ubuntu Linux Benchmark</i>. https://www.cisecurity.org/benchmark/ubuntu_linux</li>
+  <li>GNU Project. <i>GNU tar manual</i>. https://www.gnu.org/software/tar/manual/</li>
+  <li>Oracle. <i>Oracle VM VirtualBox User Manual</i> (instantáneas y redes solo-anfitrión). https://www.virtualbox.org/manual/</li>
+</ol>
+
+<!-- ===================== ANEXO A ===================== -->
+<h1>Anexo A. Scripts e instrucciones para repetir las pruebas</h1>
+<p>Los scripts están en la carpeta <code>scripts/</code> y reproducen exactamente los comandos de las secciones 3 a 7. <b>Solo deben ejecutarse en las máquinas virtuales del laboratorio aislado.</b></p>
+<ol>
+  <li><b>Preparar el entorno.</b> En VirtualBox, poner ambas VM en «adaptador solo-anfitrión». Iniciar el servidor, ejecutar <code>ip a</code> y anotar la IP (el servidor recibe IP por DHCP: verificarla antes de cada sesión).</li>
+  <li><b>Estado inicial.</b> En el servidor: <code>bash 01_estado_inicial_vulnerable.sh</code>. Apagar con <code>sudo systemctl poweroff -i</code> y tomar la instantánea «estado inicial vulnerable».</li>
+  <li><b>Página de la organización.</b> La crea el script 01. Para recrearla o restablecerla en el estado protegido (dueño <code>www-data</code>, permisos 755): <code>bash 06_pagina_organizacion.sh</code>. Conviene hacerlo antes de generar el respaldo.</li>
+  <li><b>Diagnóstico.</b> En Kali: <code>nmap -sV -p- 192.168.56.101</code> y <code>ssh root@192.168.56.101</code>.</li>
+  <li><b>Controles.</b> En el servidor: <code>bash 02_controles.sh</code> (el paso C1 necesita Internet temporal, ver incidencia I03).</li>
+  <li><b>Respaldo y restauración.</b> En el servidor: <code>bash 03_respaldo_restauracion.sh</code>; en Kali, la copia externa con <code>scp</code>.</li>
+  <li><b>Validación.</b> En Kali: <code>bash 05_validacion_kali.sh</code>. En el servidor: <code>bash 04_validacion_ubuntu.sh</code>; luego <code>sudo reboot</code> y repetir ambos para comprobar la persistencia.</li>
+</ol>
+<h3><code>01_estado_inicial_vulnerable.sh</code></h3><pre>#!/usr/bin/env bash
+# =====================================================================
+# 01 - ESTADO INICIAL VULNERABLE  (solo para la VM del laboratorio aislado)
+# Reproduce las debilidades documentadas en el diagnostico (H1-H5).
+# NO ejecutar en equipos reales ni institucionales.
+# Ejecutar en el servidor Ubuntu con un usuario que tenga sudo.
+# =====================================================================
+set -u
+
+echo &quot;[1/5] Instalando servicios: OpenSSH, Apache y FTP...&quot;
+sudo apt update
+sudo apt install -y openssh-server apache2 vsftpd
+
+# Pagina sencilla de la organizacion ficticia (Cafe Montana S.A.S.)
+sudo tee /var/www/html/index.html &gt;/dev/null &lt;&lt;&#x27;HTML&#x27;
+&lt;!doctype html&gt;
+&lt;html lang=&quot;es&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot;&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot;&gt;
+&lt;title&gt;Caf&amp;eacute; Monta&amp;ntilde;a S.A.S.&lt;/title&gt;
+&lt;style&gt;
+body{font-family:Arial,sans-serif;max-width:720px;margin:40px auto;padding:0 16px;color:#222}
+h1{color:#5b3a1e}
+footer{margin-top:40px;font-size:.85em;color:#666}
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;h1&gt;Caf&amp;eacute; Monta&amp;ntilde;a S.A.S.&lt;/h1&gt;
+&lt;p&gt;Caf&amp;eacute; de origen colombiano, tostado en la monta&amp;ntilde;a.&lt;/p&gt;
+&lt;h2&gt;Productos&lt;/h2&gt;
+&lt;ul&gt;&lt;li&gt;Caf&amp;eacute; molido 500 g&lt;/li&gt;&lt;li&gt;Caf&amp;eacute; en grano 1 kg&lt;/li&gt;&lt;li&gt;Caf&amp;eacute; de origen &amp;uacute;nico&lt;/li&gt;&lt;/ul&gt;
+&lt;h2&gt;Contacto&lt;/h2&gt;
+&lt;p&gt;contacto@cafemontana.example &amp;middot; Tel. 000 000 0000 (datos ficticios)&lt;/p&gt;
+&lt;footer&gt;Sitio de prueba de un laboratorio acad&amp;eacute;mico. Todos los datos son ficticios.&lt;/footer&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+HTML
+
+echo &quot;[2/5] H1 - Permitir login SSH directo como root...&quot;
+sudo sed -i &#x27;s/^#\?PermitRootLogin.*/PermitRootLogin yes/&#x27; /etc/ssh/sshd_config
+echo &quot;      Defina una clave de laboratorio para root (no se escribe en el informe):  sudo passwd root&quot;
+sudo systemctl restart ssh
+
+echo &quot;[3/5] H2 - Permisos 777 en el sitio web...&quot;
+sudo chmod -R 777 /var/www/html
+
+echo &quot;[4/5] H3 - Firewall desactivado...&quot;
+sudo ufw disable
+
+echo &quot;[5/5] H4 - FTP (vsftpd) queda activo por la instalacion, puerto 21/tcp:&quot;
+systemctl is-active vsftpd
+
+# H5 (sistema sin actualizar) se da por defecto: NO se ejecuta apt upgrade en este paso.
+echo &quot;Listo. Apague la VM y tome la instantanea &#x27;estado inicial vulnerable&#x27; en VirtualBox.&quot;</pre>
+<h3><code>02_controles.sh</code></h3><pre>#!/usr/bin/env bash
+# =====================================================================
+# 02 - CONTROLES DE SEGURIDAD (C1-C5)  -  ejecutar en el servidor Ubuntu
+# Cada bloque responde a un hallazgo del diagnostico.
+# =====================================================================
+set -u
+
+echo &quot;[C1] (H5) Actualizando el sistema. Requiere salida a Internet temporal.&quot;
+sudo apt update &amp;&amp; sudo apt upgrade -y
+
+echo &quot;[C2] (H4) Deshabilitando el servicio innecesario vsftpd...&quot;
+sudo systemctl stop vsftpd &amp;&amp; sudo systemctl disable vsftpd
+
+echo &quot;[C3] (H1) Bloqueando el login SSH directo como root...&quot;
+sudo cp -a /etc/ssh/sshd_config /etc/ssh/sshd_config.bak      # copia previa por si hay que revertir
+sudo sed -i &#x27;s/^#\?PermitRootLogin.*/PermitRootLogin no/&#x27; /etc/ssh/sshd_config
+sudo sshd -t &amp;&amp; sudo systemctl restart ssh                    # sshd -t valida la sintaxis antes de reiniciar
+
+echo &quot;[C4] (H2) Corrigiendo permisos del sitio web...&quot;
+sudo chown -R www-data:www-data /var/www/html
+sudo chmod -R 755 /var/www/html
+
+echo &quot;[C5] (H3) Configurando el firewall UFW...&quot;
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw allow 22/tcp        # administracion SSH  (ANTES de activar UFW, para no perder el acceso)
+sudo ufw allow 80/tcp        # sitio web HTTP
+sudo ufw --force enable
+sudo ufw status verbose</pre>
+<h3><code>03_respaldo_restauracion.sh</code></h3><pre>#!/usr/bin/env bash
+# =====================================================================
+# 03 - RESPALDO Y RESTAURACION  -  ejecutar en el servidor Ubuntu
+# La copia EXTERNA (fuera de la VM del servidor) se hace desde Kali: ver paso R4.
+# =====================================================================
+set -u
+cd ~ || exit 1
+
+echo &quot;[R1] Creando el respaldo (sitio web + configuraciones criticas)...&quot;
+# Nota: /etc/ufw/ufw.conf solo guarda ENABLED/LOGLEVEL; las reglas estan en user.rules y user6.rules.
+sudo tar -czvf respaldo_servidor.tar.gz \
+  /var/www/html /etc/ssh/sshd_config \
+  /etc/ufw/ufw.conf /etc/ufw/user.rules /etc/ufw/user6.rules
+ls -l respaldo_servidor.tar.gz
+
+echo &quot;[R2] Simulando perdida de datos: se borra el archivo de prueba...&quot;
+sudo rm /var/www/html/index.html
+echo -n &quot;Titulo de la pagina sin index.html (si Apache lista el directorio, el codigo HTTP sigue siendo 200): &quot;; curl -s http://localhost/ | grep -o -m1 -E &quot;&lt;title&gt;[^&lt;]*&lt;/title&gt;&quot;
+
+echo &quot;[R3] Restaurando desde el respaldo (-C / extrae en las rutas originales)...&quot;
+sudo tar -xzvf respaldo_servidor.tar.gz -C /
+echo -n &quot;Titulo de la pagina tras restaurar: &quot;; curl -s http://localhost/ | grep -o -m1 -E &quot;&lt;title&gt;[^&lt;]*&lt;/title&gt;&quot;
+ls -l /var/www/html
+
+echo &quot;[R4] Copia externa: ejecutar DESDE KALI -&gt;&quot;
+echo &quot;     scp juan@192.168.56.101:~/respaldo_servidor.tar.gz .&quot;</pre>
+<h3><code>04_validacion_ubuntu.sh</code></h3><pre>#!/usr/bin/env bash
+# =====================================================================
+# 04 - VALIDACION FINAL EN EL SERVIDOR UBUNTU
+# Genera las evidencias P3, P4 y P5. Para P10 (persistencia): ejecutar
+#   sudo reboot
+# y, tras volver a iniciar sesion, correr este mismo script otra vez.
+# Guarda ademas una copia en texto en ~/validacion_ubuntu.txt
+# =====================================================================
+OUT=~/validacion_ubuntu.txt
+{
+echo &quot;=== $(date &#x27;+%F %T %Z&#x27;) | $(hostname) | $(lsb_release -ds) | kernel $(uname -r) ===&quot;
+
+echo; echo &quot;### P3 - Firewall (UFW)&quot;
+sudo ufw status verbose
+
+echo; echo &quot;### P4 - Permisos del sitio web (esperado: 755, dueno www-data)&quot;
+ls -ld /var/www/html
+ls -l  /var/www/html
+
+echo; echo &quot;### P5 - Configuracion efectiva de SSH, estado de FTP y actualizaciones&quot;
+sudo sshd -T | grep -Ei &#x27;^(permitrootlogin|passwordauthentication|maxauthtries)&#x27;
+echo -n &quot;vsftpd activo: &quot;;                  systemctl is-active vsftpd
+echo -n &quot;vsftpd habilitado en el arranque: &quot;; systemctl is-enabled vsftpd
+echo -n &quot;Paquetes con actualizacion pendiente: &quot;; apt list --upgradable 2&gt;/dev/null | tail -n +2 | wc -l
+
+echo; echo &quot;### Puertos en escucha&quot;
+sudo ss -tlnp
+
+echo; echo &quot;### Apache&quot;
+systemctl is-active apache2
+curl -sI http://localhost | head -n 1
+} 2&gt;&amp;1 | tee &quot;$OUT&quot;</pre>
+<h3><code>05_validacion_kali.sh</code></h3><pre>#!/usr/bin/env bash
+# =====================================================================
+# 05 - VALIDACION FINAL DESDE KALI (maquina de pruebas)
+# Genera las evidencias P1, P2, P6 y P9, y repite la prueba E17.
+# Uso:  bash 05_validacion_kali.sh [IP_SERVIDOR] [USUARIO_ADMIN]
+# =====================================================================
+TARGET=&quot;${1:-192.168.56.101}&quot;
+ADMIN=&quot;${2:-juan}&quot;
+
+echo &quot;### P2 - Nmap tras los controles (mismo escaneo que E06)&quot;
+echo &quot;    -T4 y --max-retries 1 solo acortan el tiempo: con UFW descartando paquetes, -p- puede tardar muchos minutos.&quot;
+nmap -sV -p- -T4 --max-retries 1 &quot;$TARGET&quot;
+
+echo; echo &quot;### P1 - Sitio web disponible&quot;
+curl -sI &quot;http://$TARGET/&quot; | head -n 1
+echo &quot;(Abra tambien http://$TARGET/ en el navegador de Kali y capture la pagina)&quot;
+
+echo; echo &quot;### E17 - Acceso BLOQUEADO: root por SSH (use la MISMA clave de root que dio acceso en E08)&quot;
+ssh -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 &quot;root@$TARGET&quot; &#x27;echo SI_ENTRO_ROOT&#x27;
+
+echo; echo &quot;### P6 - Acceso PERMITIDO: usuario administrador&quot;
+ssh &quot;$ADMIN@$TARGET&quot; &#x27;echo &quot;Conectado como: $(whoami) en $(hostname)&quot;; id&#x27;
+
+echo; echo &quot;### P9 - Respaldo FUERA de la VM del servidor&quot;
+scp &quot;$ADMIN@$TARGET:~/respaldo_servidor.tar.gz&quot; .
+ls -l respaldo_servidor.tar.gz
+sha256sum respaldo_servidor.tar.gz</pre>
+<h3><code>06_pagina_organizacion.sh</code></h3><pre>#!/usr/bin/env bash
+# =====================================================================
+# 06 - PAGINA DE LA ORGANIZACION FICTICIA (Cafe Montana S.A.S.)
+# Crea (o restablece) /var/www/html/index.html con dueno www-data y
+# permisos 755, es decir, en el estado PROTEGIDO.
+# Ejecutar en el servidor Ubuntu ANTES de generar el respaldo (script 03).
+# =====================================================================
+set -u
+
+sudo tee /var/www/html/index.html &gt;/dev/null &lt;&lt;&#x27;HTML&#x27;
+&lt;!doctype html&gt;
+&lt;html lang=&quot;es&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot;&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot;&gt;
+&lt;title&gt;Caf&amp;eacute; Monta&amp;ntilde;a S.A.S.&lt;/title&gt;
+&lt;style&gt;
+body{font-family:Arial,sans-serif;max-width:720px;margin:40px auto;padding:0 16px;color:#222}
+h1{color:#5b3a1e}
+footer{margin-top:40px;font-size:.85em;color:#666}
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;h1&gt;Caf&amp;eacute; Monta&amp;ntilde;a S.A.S.&lt;/h1&gt;
+&lt;p&gt;Caf&amp;eacute; de origen colombiano, tostado en la monta&amp;ntilde;a.&lt;/p&gt;
+&lt;h2&gt;Productos&lt;/h2&gt;
+&lt;ul&gt;&lt;li&gt;Caf&amp;eacute; molido 500 g&lt;/li&gt;&lt;li&gt;Caf&amp;eacute; en grano 1 kg&lt;/li&gt;&lt;li&gt;Caf&amp;eacute; de origen &amp;uacute;nico&lt;/li&gt;&lt;/ul&gt;
+&lt;h2&gt;Contacto&lt;/h2&gt;
+&lt;p&gt;contacto@cafemontana.example &amp;middot; Tel. 000 000 0000 (datos ficticios)&lt;/p&gt;
+&lt;footer&gt;Sitio de prueba de un laboratorio acad&amp;eacute;mico. Todos los datos son ficticios.&lt;/footer&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+HTML
+sudo chown -R www-data:www-data /var/www/html
+sudo chmod -R 755 /var/www/html
+
+echo &quot;Pagina creada. Permisos actuales:&quot;
+ls -ld /var/www/html
+ls -l  /var/www/html
+echo -n &quot;Titulo servido por Apache: &quot;
+curl -s http://localhost/ | grep -o -m1 -E &quot;&lt;title&gt;[^&lt;]*&lt;/title&gt;&quot;</pre>
+
+<!-- ===================== ANEXO B ===================== -->
+<h1>Anexo B. Incidencias durante la práctica</h1>
+<p>Registro de los errores que surgieron y cómo se resolvieron. Las capturas están en <code>evidencias/incidencias/</code>.</p>
+<table>
+  <thead><tr><th>ID</th><th>Qué ocurrió</th><th>Causa</th><th>Solución</th></tr></thead>
+  <tbody>
+    <tr><td><b>I01</b></td><td>nano abrió un archivo vacío al editar la configuración de SSH.</td><td>Un espacio dentro de la ruta (<code>/etc/ssh/ sshd_config</code>).</td><td><code>sudo nano /etc/ssh/sshd_config</code></td></tr>
+    <tr><td><b>I02</b></td><td><code>sudo poweroff</code> falló: «active block inhibitor».</td><td>Una sesión gráfica abierta inhibe el apagado.</td><td><code>sudo systemctl poweroff -i</code> (ignora los inhibidores).</td></tr>
+    <tr><td><b>I03</b></td><td><code>apt upgrade</code> no pudo descargar paquetes: «Temporary failure resolving».</td><td>La red solo-anfitrión no tiene Internet ni DNS.</td><td>Se habilitó salida a Internet de forma temporal solo para actualizar, se repitió el comando y la actualización avanzó (E09); después el servidor volvió a la red aislada. En la sustentación se explica que este paso es la única excepción al aislamiento.</td></tr>
+    <tr><td><b>I04</b></td><td><code>grep</code> devolvió «binary file matches».</td><td><code>auth.log</code> contiene caracteres no imprimibles.</td><td>Usar <code>grep -a</code>.</td></tr>
+    <tr><td><b>I05</b></td><td>tar: «Cannot stat: No such file or directory».</td><td>Ruta con mayúscula (<code>/etc/Ufw/…</code>) y rutas pegadas sin espacio; Linux distingue mayúsculas.</td><td>Escribir <code>/etc/ufw/ufw.conf</code> y separar cada ruta con un espacio.</td></tr>
+    <tr><td><b>I06</b></td><td>tar: «Cannot stat» sobre <code>/var/www/html/etc/ssh/sshd_config</code>.</td><td>Falta el espacio entre <code>/var/www/html</code> y <code>/etc/ssh/sshd_config</code>.</td><td>Separar las rutas.</td></tr>
+    <tr><td><b>I07</b></td><td>tar: «You may not specify more than one '-Acdtrux'».</td><td><code>-c</code> (crear) en vez de <code>-C</code> (cambiar de directorio) junto a <code>-x</code>.</td><td><code>sudo tar -xzvf respaldo_servidor.tar.gz -C /</code></td></tr>
+    <tr><td><b>I08</b></td><td><code>scp</code> desde Kali: «No route to host». El comando también usaba <code>respaldo.tar.gz</code> y no <code>respaldo_servidor.tar.gz</code>.</td><td>Error de red (no del nombre del archivo).</td><td>Kali no alcanzaba al servidor en ese momento (la IP del servidor es por DHCP y puede cambiar). Se comprobó la IP con &lt;code&gt;ip a&lt;/code&gt;, se verificó la conectividad y se repitió el comando con el nombre correcto, &lt;code&gt;respaldo_servidor.tar.gz&lt;/code&gt;. El resultado exitoso está en P9.</td></tr>
+  </tbody>
+</table>
+<figure><img src="../evidencias/incidencias/I01_nano_etc_ssh_es_un_directorio.png" alt="nano no abre la ruta con un espacio"><figcaption><span class="n">Figura 29.</span> <b>I01</b> · nano no abre la ruta con un espacio</figcaption><div class="expl"><p><b>Qué se observa:</b> <code>sudo nano /etc/ssh/ sshd_config</code> → nano abre un archivo vacío y avisa «"/etc/ssh/" is a directory».</p></div></figure>
+<figure><img src="../evidencias/incidencias/I02_poweroff_bloqueado_por_inhibidor.png" alt="El apagado normal es bloqueado"><figcaption><span class="n">Figura 30.</span> <b>I02</b> · El apagado normal es bloqueado</figcaption><div class="expl"><p><b>Qué se observa:</b> <code>sudo poweroff</code> → «Call to PowerOff failed: Operation denied due to active block inhibitor».</p></div></figure>
+<figure><img src="../evidencias/incidencias/I03_apt_upgrade_sin_dns.png" alt="apt upgrade sin resolución de nombres"><figcaption><span class="n">Figura 31.</span> <b>I03</b> · apt upgrade sin resolución de nombres</figcaption><div class="expl"><p><b>Qué se observa:</b> Decenas de «Error: Failed to fetch … Temporary failure resolving 'security.ubuntu.com'».</p></div></figure>
+<figure><img src="../evidencias/incidencias/I04_grep_auth_log_binario.png" alt="grep sobre auth.log devuelve «binary file matches»"><figcaption><span class="n">Figura 32.</span> <b>I04</b> · grep sobre auth.log devuelve «binary file matches»</figcaption><div class="expl"><p><b>Qué se observa:</b> <code>sudo grep "root" /var/log/auth.log | tail -n 20</code> → «grep: /var/log/auth.log: binary file matches».</p></div></figure>
+<figure><img src="../evidencias/incidencias/I05_tar_error_ruta_ufw_mayuscula.png" alt="tar con ruta mal escrita (mayúscula y espacio)"><figcaption><span class="n">Figura 33.</span> <b>I05</b> · tar con ruta mal escrita (mayúscula y espacio)</figcaption><div class="expl"><p><b>Qué se observa:</b> <code>… /var/www/html/etc/ssh/sshd_config /etc/Ufw/ufw.conf</code> → «Cannot stat: No such file or directory».</p></div></figure>
+<figure><img src="../evidencias/incidencias/I06_tar_error_falta_espacio_en_ruta.png" alt="tar con falta de espacio entre dos rutas"><figcaption><span class="n">Figura 34.</span> <b>I06</b> · tar con falta de espacio entre dos rutas</figcaption><div class="expl"><p><b>Qué se observa:</b> <code>… /var/www/html/etc/ssh/sshd_config</code> pegado en una sola ruta → «Cannot stat».</p></div></figure>
+<figure><img src="../evidencias/incidencias/I07_tar_extraer_opcion_c_minuscula.png" alt="tar -xzvf con la opción -c en minúscula"><figcaption><span class="n">Figura 35.</span> <b>I07</b> · tar -xzvf con la opción -c en minúscula</figcaption><div class="expl"><p><b>Qué se observa:</b> <code>sudo tar -xzvf respaldo_servidor.tar.gz -c /</code> → «You may not specify more than one '-Acdtrux'…».</p></div></figure>
+<figure><img src="../evidencias/incidencias/I08_scp_no_route_to_host.png" alt="scp desde Kali sin ruta al servidor"><figcaption><span class="n">Figura 36.</span> <b>I08</b> · scp desde Kali sin ruta al servidor</figcaption><div class="expl"><p><b>Qué se observa:</b> <code>scp juan@192.168.56.101:~/respaldo.tar.gz .</code> → «ssh: connect to host 192.168.56.101 port 22: No route to host».</p></div></figure>
+
+<!-- ===================== ANEXO C ===================== -->
+<h1>Anexo C. Índice de evidencias</h1>
+<table><thead><tr><th>ID</th><th>Archivo</th><th>Contenido</th><th class='c'>Figura</th></tr></thead><tbody><tr><td><b>E01</b></td><td><code>evidencias/E01_ip_servidor_ubuntu.png</code></td><td>Dirección IP del servidor Ubuntu</td><td class='c'>6</td></tr><tr><td><b>E02</b></td><td><code>evidencias/E02_instalacion_openssh_server.png</code></td><td>Instalación de OpenSSH Server</td><td class='c'>1</td></tr><tr><td><b>E03</b></td><td><code>evidencias/E03_apache_permisos777_firewall_apagado.png</code></td><td>Estado inicial: Apache instalado, permisos 777 y firewall apagado</td><td class='c'>2</td></tr><tr><td><b>E04</b></td><td><code>evidencias/E04_instalacion_vsftpd_ftp.png</code></td><td>Servicio innecesario: instalación de vsftpd</td><td class='c'>3</td></tr><tr><td><b>E05</b></td><td><code>evidencias/E05_instantanea_estado_inicial_vulnerable.png</code></td><td>Instantánea del estado inicial vulnerable</td><td class='c'>4</td></tr><tr><td><b>E05b</b></td><td><code>evidencias/E05b_detalle_instantanea.png</code></td><td>Detalle ampliado de la instantánea</td><td class='c'>5</td></tr><tr><td><b>E06</b></td><td><code>evidencias/E06_nmap_inicial_puertos_21_22_80.png</code></td><td>Diagnóstico con Nmap sobre el estado inicial</td><td class='c'>7</td></tr><tr><td><b>E07</b></td><td><code>evidencias/E07_ssh_root_intentos_fallidos.png</code></td><td>Intentos de acceso SSH como root con contraseña incorrecta</td><td class='c'>8</td></tr><tr><td><b>E08</b></td><td><code>evidencias/E08_ssh_root_acceso_exitoso_inicial.png</code></td><td>Acceso no autorizado exitoso como root (estado inicial)</td><td class='c'>9</td></tr><tr><td><b>E09</b></td><td><code>evidencias/E09_control1_apt_upgrade_en_curso.png</code></td><td>Control C1: actualización del sistema en curso</td><td class='c'>10</td></tr><tr><td><b>E10</b></td><td><code>evidencias/E10_control3_sshd_config_permitrootlogin_no.png</code></td><td>Control C3: PermitRootLogin no en sshd_config</td><td class='c'>11</td></tr><tr><td><b>E11</b></td><td><code>evidencias/E11_control5_ufw_default_deny.png</code></td><td>Control C5: política de entrada por defecto «deny»</td><td class='c'>12</td></tr><tr><td><b>E12</b></td><td><code>evidencias/E12_controles_2_a_5_consolidado.png</code></td><td>Controles C2 a C5 aplicados en secuencia</td><td class='c'>13</td></tr><tr><td><b>E13</b></td><td><code>evidencias/E13_log_auth_sudo_comandos_root.png</code></td><td>Registro de auditoría de comandos privilegiados</td><td class='c'>14</td></tr><tr><td><b>E14</b></td><td><code>evidencias/E14_log_auth_sshd_failed_accepted.png</code></td><td>Registro de autenticación SSH: intentos fallidos y acceso aceptado</td><td class='c'>15</td></tr><tr><td><b>E15</b></td><td><code>evidencias/E15_respaldo_tar_creado.png</code></td><td>Creación del respaldo con tar</td><td class='c'>16</td></tr><tr><td><b>E16</b></td><td><code>evidencias/E16_restauracion_tar_extraido.png</code></td><td>Restauración desde el respaldo</td><td class='c'>19</td></tr><tr><td><b>E17</b></td><td><code>evidencias/E17_validacion_ssh_root_denegado.png</code></td><td>Validación: acceso SSH como root rechazado tras los controles</td><td class='c'>21</td></tr><tr><td><b>P1</b></td><td><code class="vivo">— (en vivo)</code></td><td>Sitio web funcionando tras los controles</td><td class='c'>—</td></tr><tr><td><b>P2</b></td><td><code class="vivo">— (en vivo)</code></td><td>Nmap después de los controles</td><td class='c'>—</td></tr><tr><td><b>P3</b></td><td><code>evidencias/pendientes/P3_ufw_status.png</code></td><td>Firewall UFW activo y sus reglas</td><td class='c'>25</td></tr><tr><td><b>P4</b></td><td><code>evidencias/pendientes/P4_permisos_755.png</code></td><td>Permisos corregidos del sitio web</td><td class='c'>26</td></tr><tr><td><b>P5</b></td><td><code class="vivo">— (en vivo)</code></td><td>Configuración efectiva de SSH, FTP inactivo y parches pendientes</td><td class='c'>—</td></tr><tr><td><b>P6</b></td><td><code class="vivo">— (en vivo)</code></td><td>Acceso permitido: administrador legítimo por SSH</td><td class='c'>—</td></tr><tr><td><b>P7</b></td><td><code class="vivo">— (en vivo)</code></td><td>Pérdida simulada: sitio sin index.html</td><td class='c'>—</td></tr><tr><td><b>P8</b></td><td><code class="vivo">— (en vivo)</code></td><td>Sitio recuperado tras la restauración</td><td class='c'>—</td></tr><tr><td><b>P9</b></td><td><code class="vivo">— (en vivo)</code></td><td>Respaldo fuera de la VM del servidor</td><td class='c'>—</td></tr><tr><td><b>P10</b></td><td><code class="vivo">— (en vivo)</code></td><td>Persistencia de los controles después de reiniciar</td><td class='c'>—</td></tr><tr><td><b>I01</b></td><td><code>evidencias/incidencias/I01_nano_etc_ssh_es_un_directorio.png</code></td><td>nano no abre la ruta con un espacio</td><td class='c'>29</td></tr><tr><td><b>I02</b></td><td><code>evidencias/incidencias/I02_poweroff_bloqueado_por_inhibidor.png</code></td><td>El apagado normal es bloqueado</td><td class='c'>30</td></tr><tr><td><b>I03</b></td><td><code>evidencias/incidencias/I03_apt_upgrade_sin_dns.png</code></td><td>apt upgrade sin resolución de nombres</td><td class='c'>31</td></tr><tr><td><b>I04</b></td><td><code>evidencias/incidencias/I04_grep_auth_log_binario.png</code></td><td>grep sobre auth.log devuelve «binary file matches»</td><td class='c'>32</td></tr><tr><td><b>I05</b></td><td><code>evidencias/incidencias/I05_tar_error_ruta_ufw_mayuscula.png</code></td><td>tar con ruta mal escrita (mayúscula y espacio)</td><td class='c'>33</td></tr><tr><td><b>I06</b></td><td><code>evidencias/incidencias/I06_tar_error_falta_espacio_en_ruta.png</code></td><td>tar con falta de espacio entre dos rutas</td><td class='c'>34</td></tr><tr><td><b>I07</b></td><td><code>evidencias/incidencias/I07_tar_extraer_opcion_c_minuscula.png</code></td><td>tar -xzvf con la opción -c en minúscula</td><td class='c'>35</td></tr><tr><td><b>I08</b></td><td><code>evidencias/incidencias/I08_scp_no_route_to_host.png</code></td><td>scp desde Kali sin ruta al servidor</td><td class='c'>36</td></tr></tbody></table>
+
+</body>
+</html>
